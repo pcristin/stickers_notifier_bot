@@ -2,7 +2,7 @@
 # Comprehensive build, deployment, and management automation
 
 # Configuration
-COMPOSE_CMD := $(shell command -v docker-compose 2> /dev/null || echo "docker compose")
+COMPOSE_CMD := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 CONTAINER_NAME := stickers-notifier-bot
 IMAGE_NAME := stickers-notifier-bot
 DATA_DIR := data
