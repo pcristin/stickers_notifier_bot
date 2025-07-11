@@ -23,8 +23,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Create data directory for persistent storage
-RUN mkdir -p /app/data
+# Create directories for persistent storage
+RUN mkdir -p /app/data /app/logs
 
 # Create non-root user for security
 RUN adduser --disabled-password --gecos '' --uid 1000 botuser && \
