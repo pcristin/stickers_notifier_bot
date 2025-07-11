@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  stickers-notifier-bot:
+    build: .
+    container_name: stickers-notifier-bot
+    restart: unless-stopped
+    
+    # Environment variables
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - TELEGRAM_INIT_DATA=${TELEGRAM_INIT_DATA}
+      - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
+      - TELEGRAM_FIRST_NAME=${TELEGRAM_FIRST_NAME}
+      - TELEGRAM_LAST_NAME=${TELEGRAM_LAST_NAME}
+      - TELEGRAM_USERNAME=${TELEGRAM_USERNAME}
+      - TELEGRAM_LANGUAGE_CODE=${TELEGRAM_LANGUAGE_CODE:-en}
+      - TELEGRAM_IS_PREMIUM=${TELEGRAM_IS_PREMIUM:-false}
+      - TELEGRAM_PHOTO_URL=${TELEGRAM_PHOTO_URL}
+    
+    # Persistent volumes for data
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('https://api.telegram.org/bot$$BOT_TOKEN/getMe')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1' 
