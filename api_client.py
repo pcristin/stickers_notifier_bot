@@ -16,7 +16,7 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-class StickerScanAPIClient:
+class Scanner:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
         self.access_token: Optional[str] = None
@@ -190,6 +190,8 @@ class StickerScanAPIClient:
         
         for marketplace in marketplaces:
             market_name = marketplace.get("marketplace")
+            if market_name == "Harbor":
+                continue
             price = marketplace.get("price")
             if market_name and price is not None:
                 prices[market_name] = float(price)

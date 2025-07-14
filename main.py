@@ -15,6 +15,7 @@ from aiogram import F
 import re
 
 # Import configuration
+from api.harbor.harbor_client import HarborClient
 from config import (
     BOT_TOKEN, API_BASE_URL, USER_SETTINGS_FILE, PRICE_CACHE_FILE,
     PRICE_CHECK_INTERVAL, ERROR_RETRY_INTERVAL,
@@ -930,8 +931,9 @@ class StickerNotifierBot:
             # Initialize aiohttp session
             self.session = aiohttp.ClientSession()
             
-            # Initialize API client
+            # Initialize API clients
             self.api_client = StickerScanAPIClient(self.session)
+            self.harbor_client = HarborClient()
             
             # Start background tasks
             asyncio.create_task(self.price_monitoring_loop())
