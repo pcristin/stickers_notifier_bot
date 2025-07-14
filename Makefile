@@ -80,8 +80,6 @@ setup: check-docker ## Create necessary directories and set permissions
 	@echo "$(BLUE)[INFO]$(RESET) Setting up directories..."
 	@mkdir -p $(DATA_DIR) $(LOGS_DIR)
 	@chmod 755 $(DATA_DIR) $(LOGS_DIR)
-	@echo "$(BLUE)[INFO]$(RESET) Setting container user permissions (uid:gid 1000:1000)..."
-	@chown -R 1000:1000 $(DATA_DIR) $(LOGS_DIR) 2>/dev/null || true
 	@echo "$(GREEN)[SUCCESS]$(RESET) Directories created and configured"
 
 .PHONY: build
@@ -308,14 +306,6 @@ rebuild: stop build start ## Stop, rebuild, and start (for development)
 # =============================================================================
 # UTILITIES
 # =============================================================================
-
-.PHONY: fix-permissions
-fix-permissions: ## Fix host directory permissions for container user
-	@echo "$(BLUE)[INFO]$(RESET) Fixing directory permissions for container user (uid:gid 1000:1000)..."
-	@mkdir -p $(DATA_DIR) $(LOGS_DIR)
-	@chown -R 1000:1000 $(DATA_DIR) $(LOGS_DIR)
-	@chmod 755 $(DATA_DIR) $(LOGS_DIR)
-	@echo "$(GREEN)[SUCCESS]$(RESET) Permissions fixed"
 
 .PHONY: env-check
 env-check: ## Validate environment variables
