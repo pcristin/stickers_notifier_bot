@@ -23,6 +23,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
+# Copy session file
+COPY session.session .
+
 # Create directories for persistent storage
 RUN mkdir -p /app/data /app/logs
 
