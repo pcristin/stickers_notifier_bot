@@ -4,14 +4,14 @@ import hmac
 import time
 import urllib.parse
 from typing import Dict, List, Optional, Any
+from urllib.parse import urlparse, parse_qsl, unquote_plus
 import aiohttp
 import logging
+from telethon import TelegramClient, functions, types
 
 from config import (
     AUTH_ENDPOINT, PRICE_BUNDLES_ENDPOINT,
-    TELEGRAM_INIT_DATA, TELEGRAM_USER_ID, TELEGRAM_FIRST_NAME, TELEGRAM_LAST_NAME,
-    TELEGRAM_USERNAME, TELEGRAM_LANGUAGE_CODE, TELEGRAM_IS_PREMIUM,
-    TELEGRAM_PHOTO_URL
+        TELEGRAM_INIT_DATA, TELEGRAM_API_ID, TELEGRAM_API_HASH
 )
 
 logger = logging.getLogger(__name__)
@@ -23,61 +23,71 @@ class Scanner:
         self.user_data: Optional[Dict] = None
         self.token_expires_at: Optional[int] = None
         
-    def _generate_init_data(self) -> str:
-        """Generate Telegram WebApp initData string"""
-        # Create user data object
-        user_data = {
-            "id": int(TELEGRAM_USER_ID),
-            "first_name": TELEGRAM_FIRST_NAME,
-            "last_name": TELEGRAM_LAST_NAME,
-            "username": TELEGRAM_USERNAME,
-            "language_code": TELEGRAM_LANGUAGE_CODE,
-            "is_premium": TELEGRAM_IS_PREMIUM,
-            "allows_write_to_pm": True
-        }
+        # Telethon config
+        self.api_id = TELEGRAM_API_ID
+        self.api_hash = TELEGRAM_API_HASH
+        self.bot_username = '@sticker_scan_bot'
+        self.peer = '@sticker_scan_bot'
+        self.base_webapp = 'https://stickerscan.online/api/auth/telegram'
         
-        if TELEGRAM_PHOTO_URL:
-            user_data["photo_url"] = TELEGRAM_PHOTO_URL
-            
-        # URL encode the user data
-        user_encoded = urllib.parse.quote(json.dumps(user_data, separators=(',', ':')))
+    async def _get_webapp_url(self) -> str:
+        """Get webapp URL using Telethon"""
+        client = TelegramClient('session', self.api_id, self.api_hash)
+        await client.start()
         
-        # Generate current timestamp
-        auth_date = int(time.time())
-        
-        # Create the initData string components
-        init_data_parts = [
-            f"user={user_encoded}",
-            f"chat_instance=-6598249988084805910",  # Static value from example
-            f"chat_type=sender",
-            f"auth_date={auth_date}"
-        ]
-        
-        # For a real implementation, you'd need to generate proper signature and hash
-        # For now, we'll use placeholder values since we need the actual bot secret
-        init_data_parts.extend([
-            "signature=placeholder_signature",
-            "hash=placeholder_hash"
-        ])
-        
-        return "&".join(init_data_parts)
-    
-    async def authenticate(self) -> bool:
-        """Authenticate with stickerscan.online API"""
         try:
-            # Use captured initData if available, otherwise generate it
+            res = await client(functions.messages.RequestWebViewRequest(
+                peer=self.peer,
+                bot=self.bot_username,
+                platform='web',
+                from_bot_menu=True,
+                compact=True,
+                fullscreen=False,
+                url=self.base_webapp,
+                start_param=None,
+                theme_params=types.DataJSON(data='{}'),
+            ))
+            return res.url
+        finally:
+            await client.disconnect()
+    
+    def _fragment_to_initdata(self, frag: str) -> str:
+        """
+        Extract initData from URL fragment.
+        Given the URL-fragment after the '#', extract exactly
+        the 'tgWebAppData=...' payload and turn it into the
+        string the WebApp POST uses.
+        """
+        pairs = dict(parse_qsl(frag, keep_blank_values=True))
+        raw = pairs.get('tgWebAppData')
+        if not raw:
+            raise ValueError("No tgWebAppData in fragment")
+        # raw is URL-encoded again, so decode it once
+        return unquote_plus(raw)
+    
+    async def _get_telethon_initdata(self) -> str:
+        """Get initData using Telethon authentication"""
+        # 1) get the MTProto‑generated WebView URL
+        webview_url = await self._get_webapp_url()
+        logger.info(f"WebView URL obtained: {webview_url}")
+        
+        # 2) pull off the "#..." fragment
+        frag = urlparse(webview_url).fragment
+        init_data = self._fragment_to_initdata(frag)
+        logger.info("initData extracted from WebView URL")
+        
+        return init_data
+        
+    async def authenticate(self) -> bool:
+        """Authenticate with stickerscan.online API using Telethon"""
+        try:
+            # Use captured initData if available, otherwise get it via Telethon
             if TELEGRAM_INIT_DATA:
                 logger.info("Using captured initData from environment")
                 init_data = TELEGRAM_INIT_DATA
             else:
-                # Check if we have all required telegram data for generation
-                if not all([TELEGRAM_USER_ID, TELEGRAM_FIRST_NAME, TELEGRAM_USERNAME]):
-                    logger.error("Missing required Telegram account data in environment variables")
-                    logger.error("Either provide TELEGRAM_INIT_DATA or all manual account fields")
-                    return False
-                    
-                logger.info("Generating initData from account data (may not work without proper signatures)")
-                init_data = self._generate_init_data()
+                logger.info("Getting initData via Telethon...")
+                init_data = await self._get_telethon_initdata()
             
             payload = {
                 "initData": init_data

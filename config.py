@@ -19,6 +19,10 @@ TELEGRAM_LANGUAGE_CODE = os.getenv("TELEGRAM_LANGUAGE_CODE", "en")
 TELEGRAM_IS_PREMIUM = os.getenv("TELEGRAM_IS_PREMIUM", "false").lower() == "true"
 TELEGRAM_PHOTO_URL = os.getenv("TELEGRAM_PHOTO_URL", "")
 
+# Option 3: Use telegram api key
+TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID")
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
+
 # API configuration
 API_BASE_URL = "https://stickerscan.online/api"
 AUTH_ENDPOINT = f"{API_BASE_URL}/auth/telegram"

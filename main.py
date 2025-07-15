@@ -22,7 +22,7 @@ from config import (
     DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER,
     NOTIFICATION_HISTORY_FILE, LOGS_DIR
 )
-from api_client import StickerScanAPIClient
+from api_client import Scanner
 from user_states import UserStateManager, UserState
 import uuid
 
@@ -932,7 +932,7 @@ class StickerNotifierBot:
             self.session = aiohttp.ClientSession()
             
             # Initialize API clients
-            self.api_client = StickerScanAPIClient(self.session)
+            self.api_client = Scanner(self.session)
             self.harbor_client = HarborClient()
             
             # Start background tasks
@@ -961,9 +961,14 @@ class StickerNotifierBot:
         if not self.api_client:
             logger.error("API client not initialized")
             return
+
+        if not self.harbor_client:
+            logger.error("Harbor client not initialized")
+            return
             
         # Fetch current price bundles
         bundles = await self.api_client.fetch_price_bundles()
+        harbor_floor_prices = await self.harbor_client.fetch_floor_price_harbor()
         if not bundles:
             logger.warning("No price bundles received from API")
             return
@@ -972,7 +977,8 @@ class StickerNotifierBot:
         current_time = datetime.now().isoformat()
         self.price_cache = {
             "last_updated": current_time,
-            "bundles": bundles
+            "bundles": bundles,
+            "harbor_floor_prices": harbor_floor_prices
         }
         self.save_price_cache()
         
@@ -984,13 +990,14 @@ class StickerNotifierBot:
             for collection_id, collection in collections.items():
                 await self.check_collection_price(
                     user_id, collection_id, collection, 
-                    bundles, notification_settings
+                    bundles, notification_settings,
+                    harbor_floor_prices
                 )
                 
         logger.info(f"Price check completed for {len(bundles)} bundles")
     
     async def check_collection_price(self, user_id: str, collection_id: str, collection: Dict, 
-                                   bundles: List[Dict], notification_settings: Dict):
+                                   bundles: List[Dict], notification_settings: Dict, harbor_floor_prices: Dict = None):
         """Check price for a specific collection and send notifications if needed"""
         try:
             # Find the collection in bundles
