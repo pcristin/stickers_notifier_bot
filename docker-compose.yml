@@ -7,14 +7,7 @@ services:
     # Environment variables
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - TELEGRAM_INIT_DATA=${TELEGRAM_INIT_DATA}
-      - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
-      - TELEGRAM_FIRST_NAME=${TELEGRAM_FIRST_NAME}
-      - TELEGRAM_LAST_NAME=${TELEGRAM_LAST_NAME}
-      - TELEGRAM_USERNAME=${TELEGRAM_USERNAME}
-      - TELEGRAM_LANGUAGE_CODE=${TELEGRAM_LANGUAGE_CODE:-en}
-      - TELEGRAM_IS_PREMIUM=${TELEGRAM_IS_PREMIUM:-false}
-      - TELEGRAM_PHOTO_URL=${TELEGRAM_PHOTO_URL}
+      # Using telethon for authentication - manual telegram fields not needed
       - TELEGRAM_API_ID=${TELEGRAM_API_ID}
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
     
