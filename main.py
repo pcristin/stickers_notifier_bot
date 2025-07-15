@@ -983,18 +983,24 @@ class StickerNotifierBot:
         self.save_price_cache()
         
         # Check each user's collections
+        logger.info(f"Checking collections for {len(self.user_settings)} users")
+        
+        total_collections_checked = 0
         for user_id, user_data in self.user_settings.items():
             collections = user_data.get("collections", {})
             notification_settings = user_data.get("notification_settings", {})
             
+            logger.info(f"User {user_id}: {len(collections)} collections")
+            
             for collection_id, collection in collections.items():
+                total_collections_checked += 1
                 await self.check_collection_price(
                     user_id, collection_id, collection, 
                     bundles, notification_settings,
                     harbor_floor_prices
                 )
                 
-        logger.info(f"Price check completed for {len(bundles)} bundles")
+        logger.info(f"Price check completed for {len(bundles)} bundles, checked {total_collections_checked} user collections")
     
     async def check_collection_price(self, user_id: str, collection_id: str, collection: Dict, 
                                    bundles: List[Dict], notification_settings: Dict, harbor_floor_prices: Dict = None):

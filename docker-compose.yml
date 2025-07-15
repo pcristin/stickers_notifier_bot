@@ -13,8 +13,8 @@ services:
     
     # Persistent volumes for data
     volumes:
-      - bot_data:/app/data
-      - bot_logs:/app/logs
+      - ./data:/app/data
+      - ./logs:/app/logs
     
     # Logging configuration
     logging:
@@ -41,7 +41,4 @@ services:
           memory: 128M
           cpus: '0.1'
 
-# Named volumes
-volumes:
-  bot_data:
-  bot_logs: 
+ 
