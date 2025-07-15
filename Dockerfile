@@ -26,12 +26,13 @@ COPY . .
 # Copy session file
 COPY session.session .
 
-# Create directories for persistent storage
-RUN mkdir -p /app/data /app/logs
+# Create non-root user for security first
+RUN adduser --disabled-password --gecos '' --uid 1000 botuser
 
-# Create non-root user for security
-RUN adduser --disabled-password --gecos '' --uid 1000 botuser && \
-    chown -R botuser:botuser /app
+# Create directories for persistent storage and set proper ownership
+RUN mkdir -p /app/data /app/logs && \
+    chown -R botuser:botuser /app && \
+    chmod -R 755 /app/data /app/logs
 
 # Switch to non-root user
 USER botuser
