@@ -41,10 +41,7 @@ class Scanner:
                 bot=self.bot_username,
                 platform='web',
                 from_bot_menu=True,
-                compact=True,
-                fullscreen=False,
                 url=self.base_webapp,
-                start_param=None,
                 theme_params=types.DataJSON(data='{}'),
             ))
             return res.url
