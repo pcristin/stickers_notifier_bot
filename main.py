@@ -14,17 +14,54 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram import F
 import re
 
+from functools import wraps
+
 # Import configuration
 from api.harbor.harbor_client import HarborClient
 from config import (
     BOT_TOKEN, API_BASE_URL, USER_SETTINGS_FILE, PRICE_CACHE_FILE,
     PRICE_CHECK_INTERVAL, ERROR_RETRY_INTERVAL,
     DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER,
-    NOTIFICATION_HISTORY_FILE, LOGS_DIR
+    NOTIFICATION_HISTORY_FILE, LOGS_DIR, WHITELISTED_USER_IDS
 )
 from api_client import Scanner
 from user_states import UserStateManager, UserState
 import uuid
+
+def require_whitelisted_user(func):
+    """Decorator to check if user is whitelisted"""
+    @wraps(func)
+    async def wrapper(update, *args, **kwargs):
+        user_id = None
+        
+        # Handle different update types
+        if hasattr(update, 'from_user') and update.from_user:
+            user_id = update.from_user.id
+        elif hasattr(update, 'message') and update.message and update.message.from_user:
+            user_id = update.message.from_user.id
+        
+        if user_id not in WHITELISTED_USER_IDS:
+            await send_unauthorized_message(update)
+            return
+            
+        return await func(update, *args, **kwargs)
+    return wrapper
+
+async def send_unauthorized_message(update):
+    """Send unauthorized access message"""
+    message = (
+        "🚫 **Access Denied**\n\n"
+        "Sorry, this bot is restricted to authorized users only.\n"
+        "If you believe you should have access, please contact the administrator."
+    )
+    
+    try:
+        if hasattr(update, 'message') and update.message:
+            await update.message.answer(message, parse_mode="Markdown")
+        elif hasattr(update, 'answer'):
+            await update.answer(message, show_alert=True)
+    except Exception as e:
+        logger.error(f"Failed to send unauthorized message: {e}")
 
 # Configure logging
 def setup_logging():
@@ -101,18 +138,18 @@ class StickerNotifierBot:
         
     def _register_handlers(self):
         """Register all bot handlers"""
-        self.dp.message(Command("start"))(self.cmd_start)
-        self.dp.message(Command("settings"))(self.cmd_settings)
-        self.dp.message(Command("cancel"))(self.cmd_cancel)
+        self.dp.message(Command("start"))(require_whitelisted_user(self.cmd_start))
+        self.dp.message(Command("settings"))(require_whitelisted_user(self.cmd_settings))
+        self.dp.message(Command("cancel"))(require_whitelisted_user(self.cmd_cancel))
         
         # Callback query handlers
-        self.dp.callback_query(F.data.startswith("main_"))(self.handle_main_menu)
-        self.dp.callback_query(F.data.startswith("collection_"))(self.handle_collection_settings)
-        self.dp.callback_query(F.data.startswith("notification_"))(self.handle_notification_settings)
-        self.dp.callback_query(F.data.startswith("confirm_"))(self.handle_confirmation)
+        self.dp.callback_query(F.data.startswith("main_"))(require_whitelisted_user(self.handle_main_menu))
+        self.dp.callback_query(F.data.startswith("collection_"))(require_whitelisted_user(self.handle_collection_settings))
+        self.dp.callback_query(F.data.startswith("notification_"))(require_whitelisted_user(self.handle_notification_settings))
+        self.dp.callback_query(F.data.startswith("confirm_"))(require_whitelisted_user(self.handle_confirmation))
         
         # Text message handlers for user input flows
-        self.dp.message(F.text & ~F.text.startswith("/"))(self.handle_text_input)
+        self.dp.message(F.text & ~F.text.startswith("/"))(require_whitelisted_user(self.handle_text_input))
         
     async def cmd_start(self, message: types.Message):
         """Handle /start command"""
