@@ -54,4 +54,23 @@ def escape_markdown(text: str) -> str:
     # This regex finds dots that are not preceded and followed by digits
     escaped_text = re.sub(r'(?<!\d)\.(?!\d)', r'\\.', escaped_text)
     
+    return escaped_text
+
+def escape_markdown_link_text(text: str) -> str:
+    """Escape Markdown characters for text that will be used inside [link text](url).
+    Underscores don't need escaping inside link text."""
+    if not text:
+        return ""
+    
+    # For link text, we don't need to escape underscores as they're safe inside [text](url)
+    escape_chars = ['*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '!']
+    escaped_text = text
+    
+    # Escape special characters except underscores
+    for char in escape_chars:
+        escaped_text = escaped_text.replace(char, f'\\{char}')
+    
+    # Handle dots more carefully - only escape if not part of a number
+    escaped_text = re.sub(r'(?<!\d)\.(?!\d)', r'\\.', escaped_text)
+    
     return escaped_text 

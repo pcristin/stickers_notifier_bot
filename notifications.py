@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict
-from utils import escape_markdown
+from utils import escape_markdown, escape_markdown_link_text
 from config import NOTIFICATION_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ class NotificationManager:
                     
                     if url:
                         # Create clickable link: [Market Name](URL): Price TON
-                        escaped_name = escape_markdown(market_name)
+                        escaped_name = escape_markdown_link_text(market_name)
                         market_text = f"• [{escaped_name}]({url}): {price} TON"
                     else:
                         # Fallback without link
