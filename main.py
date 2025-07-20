@@ -155,6 +155,7 @@ class StickerNotifierBot:
         self.dp.message(Command("start"))(require_whitelisted_user(self.cmd_start))
         self.dp.message(Command("settings"))(require_whitelisted_user(self.cmd_settings))
         self.dp.message(Command("cancel"))(require_whitelisted_user(self.cmd_cancel))
+        self.dp.message(Command("cleanup_users"))(require_whitelisted_user(self.cmd_cleanup_users))
         
         # Callback query handlers
         self.dp.callback_query(F.data.startswith("main_"))(require_whitelisted_user(self.handle_main_menu))
@@ -200,6 +201,44 @@ class StickerNotifierBot:
             )
         else:
             await message.answer("No active operation to cancel. Use /settings to access the menu.")
+            
+    async def cmd_cleanup_users(self, message: types.Message):
+        """Remove non-whitelisted users from settings (admin command)"""
+        user_id = message.from_user.id
+        
+        # Count non-whitelisted users
+        non_whitelisted = {uid: data for uid, data in self.user_settings.items() 
+                          if int(uid) not in WHITELISTED_USER_IDS}
+        
+        if not non_whitelisted:
+            await message.answer("✅ No non-whitelisted users found in settings.")
+            return
+            
+        # Remove non-whitelisted users
+        removed_count = 0
+        for uid in list(non_whitelisted.keys()):
+            del self.user_settings[uid]
+            removed_count += 1
+            
+        # Also clean notification history
+        notifications_removed = 0
+        for key in list(self.last_notifications.keys()):
+            user_part = key.split(':')[0]
+            if int(user_part) not in WHITELISTED_USER_IDS:
+                del self.last_notifications[key]
+                notifications_removed += 1
+        
+        # Save cleaned data
+        self.save_user_settings()
+        self.save_notification_history()
+        
+        await message.answer(
+            f"🧹 **Cleanup Complete**\n\n"
+            f"• Removed {removed_count} non-whitelisted users\n"
+            f"• Cleaned {notifications_removed} old notifications\n\n"
+            f"Only whitelisted users will now be monitored.",
+            parse_mode="Markdown"
+        )
         
     async def cmd_settings(self, message: types.Message):
         """Show main settings menu"""
@@ -1033,11 +1072,20 @@ class StickerNotifierBot:
         }
         self.save_price_cache()
         
-        # Check each user's collections
-        logger.info(f"Checking collections for {len(self.user_settings)} users")
+        # Check each user's collections (only for whitelisted users)
+        whitelisted_users = {}
+        for uid, data in self.user_settings.items():
+            try:
+                if int(uid) in WHITELISTED_USER_IDS:
+                    whitelisted_users[uid] = data
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid user ID in settings: {uid}")
+                continue
+        
+        logger.info(f"Checking collections for {len(whitelisted_users)} whitelisted users (total users in settings: {len(self.user_settings)})")
         
         total_collections_checked = 0
-        for user_id, user_data in self.user_settings.items():
+        for user_id, user_data in whitelisted_users.items():
             collections = user_data.get("collections", {})
             notification_settings = user_data.get("notification_settings", {})
             
