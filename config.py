@@ -29,8 +29,8 @@ AUTH_ENDPOINT = f"{API_BASE_URL}/auth/telegram"
 PRICE_BUNDLES_ENDPOINT = f"{API_BASE_URL}/characters/min-price-bundles"
 
 # Whitelisted users
-WHITELISTED_USER_IDS = os.getenv("WHITELISTED_USER_IDS", "").split(",")
-WHITELISTED_USER_IDS = [int(uid.strip()) for uid in WHITELISTED_USER_IDS if uid.strip().isdigit()]
+WHITELISTED_USER_IDS = os.getenv("WHITELISTED_USER_IDS", "")
+WHITELISTED_USER_IDS = [int(user) for user in WHITELISTED_USER_IDS.split(',')]
 
 # Data directory for persistent storage
 DATA_DIR = os.getenv("DATA_DIR", "data")
