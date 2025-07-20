@@ -197,13 +197,29 @@ class Scanner:
         
         for marketplace in marketplaces:
             market_name = marketplace.get("marketplace")
-            if market_name == "Harbor":
-                continue
             price = marketplace.get("price")
             if market_name and price is not None:
                 prices[market_name] = float(price)
                 
         return prices
+    
+    def get_marketplace_data(self, bundle: Dict) -> Dict[str, Dict[str, any]]:
+        """Extract marketplace data including prices and URLs from a bundle"""
+        marketplace_data = {}
+        marketplaces = bundle.get("marketplaces", [])
+        
+        for marketplace in marketplaces:
+            market_name = marketplace.get("marketplace")
+            price = marketplace.get("price")
+            url = marketplace.get("url")
+            
+            if market_name and price is not None:
+                marketplace_data[market_name] = {
+                    "price": float(price),
+                    "url": url
+                }
+                
+        return marketplace_data
     
     def get_lowest_price(self, bundle: Dict) -> Optional[float]:
         """Get the lowest price across all marketplaces for a bundle"""
