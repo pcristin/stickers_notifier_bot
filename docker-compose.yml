@@ -4,6 +4,8 @@ services:
     container_name: stickers-notifier-bot
     restart: unless-stopped
     
+    env_file:
+      - .env
     # Environment variables
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
