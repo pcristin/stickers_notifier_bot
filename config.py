@@ -46,8 +46,8 @@ PRICE_CACHE_FILE = os.path.join(DATA_DIR, "price_cache.json")
 NOTIFICATION_HISTORY_FILE = os.path.join(DATA_DIR, "notification_history.json")
 
 # Monitoring settings
-PRICE_CHECK_INTERVAL = 180  # 3 minutes in seconds
-ERROR_RETRY_INTERVAL = 60   # 1 minute in seconds
+PRICE_CHECK_INTERVAL = int(os.getenv("PRICE_CHECK_INTERVAL", 180))  # 3 minutes in seconds
+ERROR_RETRY_INTERVAL = int(os.getenv("ERROR_RETRY_INTERVAL", 60))   # 1 minute in seconds
 
 # Default notification settings
 DEFAULT_BUY_MULTIPLIER = 2.0
