@@ -31,23 +31,32 @@ import uuid
 def require_whitelisted_user(func):
     """Decorator to check if user is whitelisted"""
     @wraps(func)
-    async def wrapper(update, *args, **kwargs):
+    async def wrapper(event, *args, **kwargs):
         user_id = None
         
-        # Handle different update types
-        if hasattr(update, 'from_user') and update.from_user:
-            user_id = update.from_user.id
-        elif hasattr(update, 'message') and update.message and update.message.from_user:
-            user_id = update.message.from_user.id
+        # Handle different event types - aiogram passes specific types
+        if isinstance(event, types.Message):
+            user_id = event.from_user.id
+        elif isinstance(event, types.CallbackQuery):
+            user_id = event.from_user.id
+        else:
+            # Fallback for other types
+            if hasattr(event, 'from_user') and event.from_user:
+                user_id = event.from_user.id
         
-        if user_id not in WHITELISTED_USER_IDS:
-            await send_unauthorized_message(update)
+        if not user_id:
+            logger.error("Could not extract user_id from event")
             return
             
-        return await func(update, *args, **kwargs)
+        if user_id not in WHITELISTED_USER_IDS:
+            logger.info(f"Unauthorized access attempt by user_id: {user_id}")
+            await send_unauthorized_message(event)
+            return
+            
+        return await func(event, *args, **kwargs)
     return wrapper
 
-async def send_unauthorized_message(update):
+async def send_unauthorized_message(event):
     """Send unauthorized access message"""
     message = (
         "🚫 **Access Denied**\n\n"
@@ -56,10 +65,10 @@ async def send_unauthorized_message(update):
     )
     
     try:
-        if hasattr(update, 'message') and update.message:
-            await update.message.answer(message, parse_mode="Markdown")
-        elif hasattr(update, 'answer'):
-            await update.answer(message, show_alert=True)
+        if isinstance(event, types.Message):
+            await event.answer(message, parse_mode="Markdown")
+        elif isinstance(event, types.CallbackQuery):
+            await event.answer(message, show_alert=True)
     except Exception as e:
         logger.error(f"Failed to send unauthorized message: {e}")
 
@@ -132,6 +141,11 @@ class StickerNotifierBot:
         
         # Notification tracking to prevent spam
         self.last_notifications = self.load_notification_history()
+        
+        # Log whitelist configuration
+        logger.info(f"Whitelisted user IDs: {WHITELISTED_USER_IDS}")
+        if not WHITELISTED_USER_IDS:
+            logger.warning("⚠️  No whitelisted users configured! Bot will deny access to all users.")
         
         # Register handlers
         self._register_handlers()
