@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict
-from utils import escape_markdown, escape_markdown_link_text
+from utils import escape_markdown, escape_markdown_link_text, clean_marketplace_name
 from config import NOTIFICATION_HISTORY_FILE
 
 logger = logging.getLogger(__name__)
@@ -82,17 +82,20 @@ class NotificationManager:
             for market_data in notification['markets']:
                 if isinstance(market_data, dict):
                     # New format with name, price, and URL
-                    market_name = market_data.get('name', 'Unknown')
+                    raw_market_name = market_data.get('name', 'Unknown')
                     price = market_data.get('price', 0)
                     url = market_data.get('url')
                     
+                    # Clean the marketplace name for better display
+                    display_name = clean_marketplace_name(raw_market_name)
+                    
                     if url:
                         # Create clickable link: [Market Name](URL): Price TON
-                        escaped_name = escape_markdown_link_text(market_name)
+                        escaped_name = escape_markdown_link_text(display_name)
                         market_text = f"• [{escaped_name}]({url}): {price} TON"
                     else:
-                        # Fallback without link
-                        escaped_name = escape_markdown(market_name)
+                        # Fallback without link - use same escaping as link text
+                        escaped_name = escape_markdown_link_text(display_name)
                         market_text = f"• {escaped_name}: {price} TON"
                 else:
                     # Legacy format (string) - for backward compatibility
@@ -122,9 +125,11 @@ class NotificationManager:
                 fallback_markets = []
                 for market_data in notification['markets']:
                     if isinstance(market_data, dict):
-                        market_name = market_data.get('name', 'Unknown')
+                        raw_market_name = market_data.get('name', 'Unknown')
                         price = market_data.get('price', 0)
-                        fallback_markets.append(f"• {market_name}: {price} TON")
+                        # Clean the marketplace name for better display
+                        display_name = clean_marketplace_name(raw_market_name)
+                        fallback_markets.append(f"• {display_name}: {price} TON")
                     else:
                         fallback_markets.append(f"• {market_data}")
                 

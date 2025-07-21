@@ -73,4 +73,23 @@ def escape_markdown_link_text(text: str) -> str:
     # Handle dots more carefully - only escape if not part of a number
     escaped_text = re.sub(r'(?<!\d)\.(?!\d)', r'\\.', escaped_text)
     
-    return escaped_text 
+    return escaped_text
+
+def clean_marketplace_name(name: str) -> str:
+    """Clean marketplace name for display - remove underscores, make it readable"""
+    if not name:
+        return ""
+    
+    # Remove underscores and replace with spaces
+    cleaned = name.replace('_', ' ')
+    
+    # Convert to title case for better readability
+    cleaned = cleaned.title()
+    
+    # Handle common abbreviations/acronyms that should stay uppercase
+    abbreviations = ['NFT', 'TON', 'API', 'ID', 'URL', 'UI', 'UX']
+    for abbr in abbreviations:
+        # Replace title-cased version with uppercase
+        cleaned = cleaned.replace(abbr.title(), abbr)
+    
+    return cleaned 
