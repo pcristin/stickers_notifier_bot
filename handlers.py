@@ -32,6 +32,7 @@ class BotHandlers:
         self.bot.dp.callback_query(F.data.startswith("collection_"))(require_whitelisted_user(self.handle_collection_settings))
         self.bot.dp.callback_query(F.data.startswith("notification_"))(require_whitelisted_user(self.handle_notification_settings))
         self.bot.dp.callback_query(F.data.startswith("confirm_"))(require_whitelisted_user(self.handle_confirmation))
+        self.bot.dp.callback_query(F.data.startswith("wall_"))(require_whitelisted_user(self.handle_wall_callbacks))
         
         # Text message handlers for user input flows
         self.bot.dp.message(F.text & ~F.text.startswith("/"))(require_whitelisted_user(self.handle_text_input))
@@ -85,19 +86,74 @@ class BotHandlers:
         """Handle /wall command to check sell order walls"""
         user_id = message.from_user.id
         
+        # Check if API client is available
+        if not self.bot.api_client:
+            await message.answer("❌ API client not available. Please try again later.")
+            return
+        
         # Reset any existing flow and start wall query
         self.bot.state_manager.reset_user_session(user_id)
-        self.bot.state_manager.set_user_state(user_id, UserState.WALL_COLLECTION_NAME)
+        self.bot.state_manager.set_user_state(user_id, UserState.WALL_SELECTING_COLLECTION)
         
-        text = (
-            "🧱 **Wall Analysis**\n\n"
-            "Step 1/2: Enter the **collection name**\n\n"
-            "Example: `Flappy Bird`, `Hamster Kombat`, `TON Society`\n\n"
-            "💡 This will show how many sell orders are under your specified price.\n\n"
-            "Type /cancel to abort this process."
-        )
+        # Show loading message
+        loading_msg = await message.answer("🔄 Loading collections...")
         
-        await message.answer(text, parse_mode="Markdown")
+        try:
+            # Fetch collections from API
+            bundle_data = await self.bot.api_client.fetch_price_bundles()
+            if not bundle_data:
+                await loading_msg.edit_text("❌ Failed to fetch collections. Please try again later.")
+                self.bot.state_manager.reset_user_session(user_id)
+                return
+            
+            # Parse collections and stickerpacks
+            collections = {}
+            for item in bundle_data:
+                collection_name = item.get('collectionName', '')
+                stickerpack_name = item.get('characterName', '')
+                
+                if collection_name and stickerpack_name:
+                    if collection_name not in collections:
+                        collections[collection_name] = []
+                    if stickerpack_name not in collections[collection_name]:
+                        collections[collection_name].append(stickerpack_name)
+            
+            if not collections:
+                await loading_msg.edit_text("❌ No collections found. Please try again later.")
+                self.bot.state_manager.reset_user_session(user_id)
+                return
+            
+            # Store collections data
+            self.bot.state_manager.update_wall_data(user_id, available_collections=collections)
+            
+            # Create inline keyboard with collections (max 100 per page for now)
+            builder = InlineKeyboardBuilder()
+            sorted_collections = sorted(collections.keys())
+            
+            for i, collection_name in enumerate(sorted_collections[:20]):  # Limit to 20 for now
+                builder.row(
+                    InlineKeyboardButton(
+                        text=f"📦 {collection_name}", 
+                        callback_data=f"wall_collection_{i}"
+                    )
+                )
+            
+            builder.row(
+                InlineKeyboardButton(text="❌ Cancel", callback_data="wall_cancel")
+            )
+            
+            text = (
+                "🧱 **Wall Analysis**\n\n"
+                f"Found **{len(collections)}** collections with sticker packs.\n\n"
+                "📦 **Select a collection:**"
+            )
+            
+            await loading_msg.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error loading collections for wall: {e}")
+            await loading_msg.edit_text("❌ Error loading collections. Please try again later.")
+            self.bot.state_manager.reset_user_session(user_id)
         
     async def cmd_settings(self, message: types.Message):
         """Show main settings menu"""
@@ -472,8 +528,6 @@ class BotHandlers:
             await self.process_buy_multiplier_input(message, text)
         elif user_state == UserState.EDITING_SELL_MULTIPLIER:
             await self.process_sell_multiplier_input(message, text)
-        elif user_state == UserState.WALL_COLLECTION_NAME:
-            await self.process_wall_collection_name_input(message, text)
         elif user_state == UserState.WALL_TON_AMOUNT:
             await self.process_wall_ton_amount_input(message, text)
     
@@ -739,33 +793,6 @@ class BotHandlers:
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer("Collection deleted!")
 
-    async def process_wall_collection_name_input(self, message: types.Message, text: str):
-        """Process wall collection name input"""
-        user_id = message.from_user.id
-        
-        if len(text) < 2 or len(text) > 50:
-            await message.answer(
-                "❌ Collection name must be between 2 and 50 characters.\n\n"
-                "Please try again or type /cancel to abort."
-            )
-            return
-            
-        # Store collection name and move to next step
-        self.bot.state_manager.update_wall_data(user_id, collection_name=text)
-        self.bot.state_manager.set_user_state(user_id, UserState.WALL_TON_AMOUNT)
-        
-        # Escape Markdown characters for display
-        escaped_text = escape_markdown(text)
-        
-        await message.answer(
-            f"✅ Collection: **{escaped_text}**\n\n"
-            f"Step 2/2: Enter the **TON amount** for wall analysis\n\n"
-            f"Example: `10`, `25.5`, `100`\n\n"
-            f"💡 This will count sell orders under this price.\n\n"
-            f"Type /cancel to abort this process.",
-            parse_mode="Markdown"
-        )
-
     async def process_wall_ton_amount_input(self, message: types.Message, text: str):
         """Process wall TON amount input"""
         user_id = message.from_user.id
@@ -782,17 +809,23 @@ class BotHandlers:
             )
             return
             
-        # Store amount and calculate wall
+        # Store amount and get wall data
         self.bot.state_manager.update_wall_data(user_id, ton_amount=amount)
         wall_data = self.bot.state_manager.get_wall_data(user_id)
+        
+        # Validate we have required data
+        if not wall_data.collection_name or not wall_data.stickerpack_name:
+            await message.answer("❌ Missing collection data. Please start over with /wall")
+            self.bot.state_manager.reset_user_session(user_id)
+            return
         
         # Reset user session
         self.bot.state_manager.reset_user_session(user_id)
         
         # Calculate and display wall
-        await self.calculate_and_display_wall(message, wall_data.collection_name, wall_data.ton_amount)
+        await self.calculate_and_display_wall(message, wall_data.collection_name, wall_data.stickerpack_name, wall_data.ton_amount)
 
-    async def calculate_and_display_wall(self, message: types.Message, collection_name: str, ton_amount: float):
+    async def calculate_and_display_wall(self, message: types.Message, collection_name: str, stickerpack_name: str, ton_amount: float):
         """Calculate and display wall analysis"""
         try:
             # Check if API client is available
@@ -806,35 +839,34 @@ class BotHandlers:
                 await message.answer("❌ Failed to fetch price data. Please try again later.")
                 return
             
-            # Find matching collections (case-insensitive)
-            matching_collections = []
+            # Find matching collection+stickerpack (exact match)
+            target_collection = None
             for item in bundle_data:
-                if collection_name.lower() in item.get('collectionName', '').lower():
-                    matching_collections.append(item)
+                if (item.get('collectionName', '').lower() == collection_name.lower() and 
+                    item.get('characterName', '').lower() == stickerpack_name.lower()):
+                    target_collection = item
+                    break
             
-            if not matching_collections:
+            if not target_collection:
                 await message.answer(
-                    f"❌ No collection found matching **{escape_markdown(collection_name)}**\n\n"
-                    f"Please check the collection name and try again.",
+                    f"❌ No sticker pack found: **{escape_markdown(collection_name)}** - **{escape_markdown(stickerpack_name)}**\n\n"
+                    f"Please check the collection and sticker pack names.",
                     parse_mode="Markdown"
                 )
                 return
             
             # Calculate wall for each marketplace
             marketplace_walls = {}
-            total_wall = 0
             
-            for collection_item in matching_collections:
-                for marketplace_info in collection_item.get('marketplaces', []):
-                    marketplace = marketplace_info.get('marketplace', 'Unknown')
-                    prices = marketplace_info.get('prices', [])
-                    
-                    # Count prices under the specified amount
-                    wall_count = sum(1 for price_item in prices if price_item.get('price', 0) <= ton_amount)
-                    
-                    if marketplace not in marketplace_walls:
-                        marketplace_walls[marketplace] = 0
-                    marketplace_walls[marketplace] += wall_count
+            for marketplace_info in target_collection.get('marketplaces', []):
+                marketplace = marketplace_info.get('marketplace', 'Unknown')
+                prices = marketplace_info.get('prices', [])
+                
+                # Count prices under the specified amount
+                wall_count = sum(1 for price_item in prices if price_item.get('price', 0) <= ton_amount)
+                
+                if wall_count > 0:
+                    marketplace_walls[marketplace] = wall_count
             
             # Calculate total wall
             total_wall = sum(marketplace_walls.values())
@@ -843,6 +875,7 @@ class BotHandlers:
                 await message.answer(
                     f"🧱 **Wall Analysis Results**\n\n"
                     f"🏷️ Collection: **{escape_markdown(collection_name)}**\n"
+                    f"📑 Sticker Pack: **{escape_markdown(stickerpack_name)}**\n"
                     f"💰 Price Threshold: **{ton_amount} TON**\n\n"
                     f"❌ No sell orders found under **{ton_amount} TON**",
                     parse_mode="Markdown"
@@ -853,6 +886,7 @@ class BotHandlers:
             result_text = (
                 f"🧱 **Wall Analysis Results**\n\n"
                 f"🏷️ Collection: **{escape_markdown(collection_name)}**\n"
+                f"📑 Sticker Pack: **{escape_markdown(stickerpack_name)}**\n"
                 f"💰 Price Threshold: **{ton_amount} TON**\n\n"
                 f"📊 **Sell Orders Under {ton_amount} TON:**\n\n"
             )
@@ -877,4 +911,178 @@ class BotHandlers:
             logger.error(f"Error calculating wall: {e}")
             await message.answer(
                 "❌ Error calculating wall analysis. Please try again later."
-            ) 
+            )
+
+    async def handle_wall_callbacks(self, callback: types.CallbackQuery):
+        """Handle wall-related callbacks"""
+        action_parts = callback.data.split("_")
+        
+        if len(action_parts) < 2:
+            await callback.answer("Invalid wall action", show_alert=True)
+            return
+            
+        action = action_parts[1]
+        user_id = callback.from_user.id
+        
+        if action == "collection" and len(action_parts) > 2:
+            collection_index = int(action_parts[2])
+            await self.handle_wall_collection_selection(callback, collection_index)
+        elif action == "stickerpack" and len(action_parts) > 2:
+            stickerpack_index = int(action_parts[2])
+            await self.handle_wall_stickerpack_selection(callback, stickerpack_index)
+        elif action == "back" and len(action_parts) > 2 and action_parts[2] == "to" and action_parts[3] == "collections":
+            await self.handle_wall_back_to_collections(callback)
+        elif action == "cancel":
+            await self.handle_wall_cancel(callback)
+        else:
+            await callback.answer("Unknown wall action", show_alert=True)
+
+    async def handle_wall_collection_selection(self, callback: types.CallbackQuery, collection_index: int):
+        """Handle collection selection for wall analysis"""
+        user_id = callback.from_user.id
+        wall_data = self.bot.state_manager.get_wall_data(user_id)
+        
+        if not wall_data.available_collections:
+            await callback.answer("Collection data not available", show_alert=True)
+            return
+        
+        sorted_collections = sorted(wall_data.available_collections.keys())
+        
+        if collection_index >= len(sorted_collections):
+            await callback.answer("Invalid collection selection", show_alert=True)
+            return
+        
+        selected_collection = sorted_collections[collection_index]
+        stickerpacks = wall_data.available_collections[selected_collection]
+        
+        # Store selected collection
+        self.bot.state_manager.update_wall_data(user_id, collection_name=selected_collection)
+        
+        if len(stickerpacks) == 1:
+            # Only one stickerpack, skip selection and go to TON amount
+            self.bot.state_manager.update_wall_data(user_id, stickerpack_name=stickerpacks[0])
+            await self.show_wall_ton_amount_input(callback, selected_collection, stickerpacks[0])
+        else:
+            # Multiple stickerpacks, show selection
+            self.bot.state_manager.set_user_state(user_id, UserState.WALL_SELECTING_STICKERPACK)
+            await self.show_wall_stickerpack_selection(callback, selected_collection, stickerpacks)
+
+    async def show_wall_stickerpack_selection(self, callback: types.CallbackQuery, collection_name: str, stickerpacks: list):
+        """Show stickerpack selection for wall analysis"""
+        builder = InlineKeyboardBuilder()
+        
+        for i, stickerpack_name in enumerate(stickerpacks[:20]):  # Limit to 20
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"📑 {stickerpack_name}", 
+                    callback_data=f"wall_stickerpack_{i}"
+                )
+            )
+        
+        builder.row(
+            InlineKeyboardButton(text="⬅️ Back", callback_data="wall_back_to_collections"),
+            InlineKeyboardButton(text="❌ Cancel", callback_data="wall_cancel")
+        )
+        
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection_name)
+        
+        text = (
+            f"🧱 **Wall Analysis**\n\n"
+            f"📦 Collection: **{escaped_collection_name}**\n\n"
+            f"Found **{len(stickerpacks)}** sticker packs in this collection.\n\n"
+            f"📑 **Select a sticker pack:**"
+        )
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+    async def handle_wall_stickerpack_selection(self, callback: types.CallbackQuery, stickerpack_index: int):
+        """Handle stickerpack selection for wall analysis"""
+        user_id = callback.from_user.id
+        wall_data = self.bot.state_manager.get_wall_data(user_id)
+        
+        if not wall_data.collection_name or not wall_data.available_collections:
+            await callback.answer("Collection data not available", show_alert=True)
+            return
+        
+        stickerpacks = wall_data.available_collections[wall_data.collection_name]
+        
+        if stickerpack_index >= len(stickerpacks):
+            await callback.answer("Invalid stickerpack selection", show_alert=True)
+            return
+        
+        selected_stickerpack = stickerpacks[stickerpack_index]
+        
+        # Store selected stickerpack
+        self.bot.state_manager.update_wall_data(user_id, stickerpack_name=selected_stickerpack)
+        
+        await self.show_wall_ton_amount_input(callback, wall_data.collection_name, selected_stickerpack)
+
+    async def show_wall_ton_amount_input(self, callback: types.CallbackQuery, collection_name: str, stickerpack_name: str):
+        """Show TON amount input for wall analysis"""
+        user_id = callback.from_user.id
+        
+        # Set state to wait for TON amount input
+        self.bot.state_manager.set_user_state(user_id, UserState.WALL_TON_AMOUNT)
+        
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection_name)
+        escaped_stickerpack_name = escape_markdown(stickerpack_name)
+        
+        text = (
+            f"🧱 **Wall Analysis**\n\n"
+            f"📦 Collection: **{escaped_collection_name}**\n"
+            f"📑 Sticker Pack: **{escaped_stickerpack_name}**\n\n"
+            f"💰 **Enter TON amount** for wall analysis:\n\n"
+            f"Example: `10`, `25.5`, `100`\n\n"
+            f"💡 This will count sell orders under this price.\n\n"
+            f"Type /cancel to abort this process."
+        )
+        
+        await callback.message.edit_text(text, parse_mode="Markdown")
+
+    async def handle_wall_cancel(self, callback: types.CallbackQuery):
+        """Handle wall analysis cancellation"""
+        user_id = callback.from_user.id
+        self.bot.state_manager.reset_user_session(user_id)
+        
+        await callback.message.edit_text("❌ Wall analysis cancelled.\n\nUse /wall to start again.")
+        await callback.answer("Cancelled")
+
+    async def handle_wall_back_to_collections(self, callback: types.CallbackQuery):
+        """Handle back to collections from stickerpack selection"""
+        user_id = callback.from_user.id
+        wall_data = self.bot.state_manager.get_wall_data(user_id)
+        
+        if not wall_data.available_collections:
+            await callback.answer("Collection data not available", show_alert=True)
+            return
+        
+        # Reset to collection selection state
+        self.bot.state_manager.set_user_state(user_id, UserState.WALL_SELECTING_COLLECTION)
+        self.bot.state_manager.update_wall_data(user_id, collection_name=None, stickerpack_name=None)
+        
+        # Show collection selection again
+        builder = InlineKeyboardBuilder()
+        sorted_collections = sorted(wall_data.available_collections.keys())
+        
+        for i, collection_name in enumerate(sorted_collections[:20]):  # Limit to 20
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"📦 {collection_name}", 
+                    callback_data=f"wall_collection_{i}"
+                )
+            )
+        
+        builder.row(
+            InlineKeyboardButton(text="❌ Cancel", callback_data="wall_cancel")
+        )
+        
+        text = (
+            "🧱 **Wall Analysis**\n\n"
+            f"Found **{len(wall_data.available_collections)}** collections with sticker packs.\n\n"
+            "📦 **Select a collection:**"
+        )
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        await callback.answer("Back to collections") 

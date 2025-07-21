@@ -13,7 +13,8 @@ class UserState(Enum):
     EDITING_COLLECTION = "editing_collection"
     EDITING_BUY_MULTIPLIER = "editing_buy_multiplier"
     EDITING_SELL_MULTIPLIER = "editing_sell_multiplier"
-    WALL_COLLECTION_NAME = "wall_collection_name"
+    WALL_SELECTING_COLLECTION = "wall_selecting_collection"
+    WALL_SELECTING_STICKERPACK = "wall_selecting_stickerpack"
     WALL_TON_AMOUNT = "wall_ton_amount"
 
 @dataclass
@@ -28,7 +29,9 @@ class CollectionData:
 class WallData:
     """Wall query data"""
     collection_name: Optional[str] = None
+    stickerpack_name: Optional[str] = None
     ton_amount: Optional[float] = None
+    available_collections: Optional[Dict] = None
 
 @dataclass
 class UserSessionData:
