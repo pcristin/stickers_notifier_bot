@@ -99,29 +99,28 @@ class BotHandlers:
         loading_msg = await message.answer("🔄 Loading collections...")
         
         try:
-            # Fetch collections from API
-            bundle_data = await self.bot.api_client.fetch_price_bundles()
-            if not bundle_data:
-                await loading_msg.edit_text("❌ Failed to fetch collections. Please try again later.")
+            # Get user's configured collections
+            user_id_str = str(user_id)
+            user_collections = self.bot.user_settings.get(user_id_str, {}).get("collections", {})
+            
+            if not user_collections:
+                await loading_msg.edit_text(
+                    "❌ No collections configured for wall analysis.\n\n"
+                    "Use /settings → Collection Settings to add collections first."
+                )
                 self.bot.state_manager.reset_user_session(user_id)
                 return
             
-            # Parse collections and stickerpacks
+            # Organize by collection name -> sticker packs
             collections = {}
-            for item in bundle_data:
-                collection_name = item.get('collectionName', '')
-                stickerpack_name = item.get('characterName', '')
+            for collection_data in user_collections.values():
+                collection_name = collection_data['collection_name']
+                stickerpack_name = collection_data['stickerpack_name']
                 
-                if collection_name and stickerpack_name:
-                    if collection_name not in collections:
-                        collections[collection_name] = []
-                    if stickerpack_name not in collections[collection_name]:
-                        collections[collection_name].append(stickerpack_name)
-            
-            if not collections:
-                await loading_msg.edit_text("❌ No collections found. Please try again later.")
-                self.bot.state_manager.reset_user_session(user_id)
-                return
+                if collection_name not in collections:
+                    collections[collection_name] = []
+                if stickerpack_name not in collections[collection_name]:
+                    collections[collection_name].append(stickerpack_name)
             
             # Store collections data
             self.bot.state_manager.update_wall_data(user_id, available_collections=collections)
