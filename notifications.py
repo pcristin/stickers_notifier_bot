@@ -99,8 +99,19 @@ class NotificationManager:
                         market_text = f"• {escaped_name}: {price} TON"
                 else:
                     # Legacy format (string) - for backward compatibility
-                    escaped_market = escape_markdown(str(market_data))
-                    market_text = f"• {escaped_market}"
+                    # Clean the name even in legacy format
+                    raw_name = str(market_data)
+                    if ': ' in raw_name:
+                        # Format: "MARKETPLACE: PRICE TON"
+                        parts = raw_name.split(': ', 1)
+                        marketplace_name = parts[0]
+                        price_part = parts[1]
+                        cleaned_name = clean_marketplace_name(marketplace_name)
+                        market_text = f"• {cleaned_name}: {price_part}"
+                    else:
+                        # Just a marketplace name
+                        cleaned_name = clean_marketplace_name(raw_name)
+                        market_text = f"• {cleaned_name}"
                 
                 escaped_markets.append(market_text)
             markets_text = "\n".join(escaped_markets)
