@@ -1,5 +1,7 @@
 import logging
 import uuid
+import json
+import os
 from datetime import datetime
 from aiogram import F, types
 from aiogram.filters import Command
@@ -7,8 +9,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from auth import require_whitelisted_user
-from user_states import UserState
-from utils import escape_markdown
+from user_states import UserState, WallData
+from utils import escape_markdown, clean_marketplace_name
 from config import WHITELISTED_USER_IDS
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ class BotHandlers:
         self.bot.dp.message(Command("settings"))(require_whitelisted_user(self.cmd_settings))
         self.bot.dp.message(Command("cancel"))(require_whitelisted_user(self.cmd_cancel))
         self.bot.dp.message(Command("cleanup_users"))(require_whitelisted_user(self.cmd_cleanup_users))
+        self.bot.dp.message(Command("wall"))(require_whitelisted_user(self.cmd_wall))
         
         # Callback query handlers
         self.bot.dp.callback_query(F.data.startswith("main_"))(require_whitelisted_user(self.handle_main_menu))
@@ -77,6 +80,24 @@ class BotHandlers:
             f"Only whitelisted users will now be monitored.",
             parse_mode="Markdown"
         )
+        
+    async def cmd_wall(self, message: types.Message):
+        """Handle /wall command to check sell order walls"""
+        user_id = message.from_user.id
+        
+        # Reset any existing flow and start wall query
+        self.bot.state_manager.reset_user_session(user_id)
+        self.bot.state_manager.set_user_state(user_id, UserState.WALL_COLLECTION_NAME)
+        
+        text = (
+            "🧱 **Wall Analysis**\n\n"
+            "Step 1/2: Enter the **collection name**\n\n"
+            "Example: `Flappy Bird`, `Hamster Kombat`, `TON Society`\n\n"
+            "💡 This will show how many sell orders are under your specified price.\n\n"
+            "Type /cancel to abort this process."
+        )
+        
+        await message.answer(text, parse_mode="Markdown")
         
     async def cmd_settings(self, message: types.Message):
         """Show main settings menu"""
@@ -451,6 +472,10 @@ class BotHandlers:
             await self.process_buy_multiplier_input(message, text)
         elif user_state == UserState.EDITING_SELL_MULTIPLIER:
             await self.process_sell_multiplier_input(message, text)
+        elif user_state == UserState.WALL_COLLECTION_NAME:
+            await self.process_wall_collection_name_input(message, text)
+        elif user_state == UserState.WALL_TON_AMOUNT:
+            await self.process_wall_ton_amount_input(message, text)
     
     async def process_collection_name_input(self, message: types.Message, text: str):
         """Process collection name input"""
@@ -712,4 +737,144 @@ class BotHandlers:
         )
         
         await callback.message.edit_text(text, parse_mode="Markdown")
-        await callback.answer("Collection deleted!") 
+        await callback.answer("Collection deleted!")
+
+    async def process_wall_collection_name_input(self, message: types.Message, text: str):
+        """Process wall collection name input"""
+        user_id = message.from_user.id
+        
+        if len(text) < 2 or len(text) > 50:
+            await message.answer(
+                "❌ Collection name must be between 2 and 50 characters.\n\n"
+                "Please try again or type /cancel to abort."
+            )
+            return
+            
+        # Store collection name and move to next step
+        self.bot.state_manager.update_wall_data(user_id, collection_name=text)
+        self.bot.state_manager.set_user_state(user_id, UserState.WALL_TON_AMOUNT)
+        
+        # Escape Markdown characters for display
+        escaped_text = escape_markdown(text)
+        
+        await message.answer(
+            f"✅ Collection: **{escaped_text}**\n\n"
+            f"Step 2/2: Enter the **TON amount** for wall analysis\n\n"
+            f"Example: `10`, `25.5`, `100`\n\n"
+            f"💡 This will count sell orders under this price.\n\n"
+            f"Type /cancel to abort this process.",
+            parse_mode="Markdown"
+        )
+
+    async def process_wall_ton_amount_input(self, message: types.Message, text: str):
+        """Process wall TON amount input"""
+        user_id = message.from_user.id
+        
+        try:
+            amount = float(text)
+            if amount <= 0 or amount > 100000:
+                raise ValueError("Amount out of range")
+        except ValueError:
+            await message.answer(
+                "❌ Invalid amount. Please enter a valid number between 0.01 and 100000 TON.\n\n"
+                "Example: `10`, `25.5`, `100`\n\n"
+                "Type /cancel to abort."
+            )
+            return
+            
+        # Store amount and calculate wall
+        self.bot.state_manager.update_wall_data(user_id, ton_amount=amount)
+        wall_data = self.bot.state_manager.get_wall_data(user_id)
+        
+        # Reset user session
+        self.bot.state_manager.reset_user_session(user_id)
+        
+        # Calculate and display wall
+        await self.calculate_and_display_wall(message, wall_data.collection_name, wall_data.ton_amount)
+
+    async def calculate_and_display_wall(self, message: types.Message, collection_name: str, ton_amount: float):
+        """Calculate and display wall analysis"""
+        try:
+            # Check if API client is available
+            if not self.bot.api_client:
+                await message.answer("❌ API client not available. Please try again later.")
+                return
+                
+            # Fetch current price bundles from API
+            bundle_data = await self.bot.api_client.fetch_price_bundles()
+            if not bundle_data:
+                await message.answer("❌ Failed to fetch price data. Please try again later.")
+                return
+            
+            # Find matching collections (case-insensitive)
+            matching_collections = []
+            for item in bundle_data:
+                if collection_name.lower() in item.get('collectionName', '').lower():
+                    matching_collections.append(item)
+            
+            if not matching_collections:
+                await message.answer(
+                    f"❌ No collection found matching **{escape_markdown(collection_name)}**\n\n"
+                    f"Please check the collection name and try again.",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            # Calculate wall for each marketplace
+            marketplace_walls = {}
+            total_wall = 0
+            
+            for collection_item in matching_collections:
+                for marketplace_info in collection_item.get('marketplaces', []):
+                    marketplace = marketplace_info.get('marketplace', 'Unknown')
+                    prices = marketplace_info.get('prices', [])
+                    
+                    # Count prices under the specified amount
+                    wall_count = sum(1 for price_item in prices if price_item.get('price', 0) <= ton_amount)
+                    
+                    if marketplace not in marketplace_walls:
+                        marketplace_walls[marketplace] = 0
+                    marketplace_walls[marketplace] += wall_count
+            
+            # Calculate total wall
+            total_wall = sum(marketplace_walls.values())
+            
+            if total_wall == 0:
+                await message.answer(
+                    f"🧱 **Wall Analysis Results**\n\n"
+                    f"🏷️ Collection: **{escape_markdown(collection_name)}**\n"
+                    f"💰 Price Threshold: **{ton_amount} TON**\n\n"
+                    f"❌ No sell orders found under **{ton_amount} TON**",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            # Format results
+            result_text = (
+                f"🧱 **Wall Analysis Results**\n\n"
+                f"🏷️ Collection: **{escape_markdown(collection_name)}**\n"
+                f"💰 Price Threshold: **{ton_amount} TON**\n\n"
+                f"📊 **Sell Orders Under {ton_amount} TON:**\n\n"
+            )
+            
+            # Add marketplace breakdown
+            for marketplace, count in sorted(marketplace_walls.items()):
+                if count > 0:
+                    count_display = f"{count}+" if count >= 20 else str(count)
+                    marketplace_clean = clean_marketplace_name(marketplace)
+                    result_text += f"🏪 **{escape_markdown(marketplace_clean)}:** {count_display}\n"
+            
+            # Add total
+            total_display = f"{total_wall}+" if total_wall >= 20 else str(total_wall)
+            result_text += f"\n🔢 **Total Wall:** {total_display} sell orders\n\n"
+            
+            if total_wall >= 20:
+                result_text += "💡 *Note: Wall shows 20+ because each marketplace shows max 20 lowest offers*"
+            
+            await message.answer(result_text, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error calculating wall: {e}")
+            await message.answer(
+                "❌ Error calculating wall analysis. Please try again later."
+            ) 

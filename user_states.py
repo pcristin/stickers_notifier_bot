@@ -13,6 +13,8 @@ class UserState(Enum):
     EDITING_COLLECTION = "editing_collection"
     EDITING_BUY_MULTIPLIER = "editing_buy_multiplier"
     EDITING_SELL_MULTIPLIER = "editing_sell_multiplier"
+    WALL_COLLECTION_NAME = "wall_collection_name"
+    WALL_TON_AMOUNT = "wall_ton_amount"
 
 @dataclass
 class CollectionData:
@@ -23,16 +25,24 @@ class CollectionData:
     editing_collection_id: Optional[str] = None
 
 @dataclass
+class WallData:
+    """Wall query data"""
+    collection_name: Optional[str] = None
+    ton_amount: Optional[float] = None
+
+@dataclass
 class UserSessionData:
     """User session data"""
     state: UserState = UserState.IDLE
     collection_data: CollectionData = field(default_factory=CollectionData)
+    wall_data: WallData = field(default_factory=WallData)
     last_message_id: Optional[int] = None
     
     def reset(self):
         """Reset user session to idle state"""
         self.state = UserState.IDLE
         self.collection_data = CollectionData()
+        self.wall_data = WallData()
         self.last_message_id = None
 
 class UserStateManager:
@@ -86,4 +96,16 @@ class UserStateManager:
     def get_last_message_id(self, user_id: int) -> Optional[int]:
         """Get last message ID for user"""
         session = self.get_user_session(user_id)
-        return session.last_message_id 
+        return session.last_message_id
+    
+    def update_wall_data(self, user_id: int, **kwargs):
+        """Update wall data for user"""
+        session = self.get_user_session(user_id)
+        for key, value in kwargs.items():
+            if hasattr(session.wall_data, key):
+                setattr(session.wall_data, key, value)
+    
+    def get_wall_data(self, user_id: int) -> WallData:
+        """Get wall data for user"""
+        session = self.get_user_session(user_id)
+        return session.wall_data 
