@@ -6,7 +6,6 @@ services:
     
     env_file:
       - .env
-      - .credentials.json
     # Environment variables
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
@@ -18,7 +17,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    
+      - ./secrets:/app/secrets:ro
+      
     # Logging configuration
     logging:
       driver: "json-file"
