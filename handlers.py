@@ -24,6 +24,7 @@ class BotHandlers:
         self.bot.dp.message(Command("cleanup_users"))(require_whitelisted_user(self.cmd_cleanup_users))
         self.bot.dp.message(Command("wall"))(require_whitelisted_user(self.cmd_wall))
         self.bot.dp.message(Command("update_floor"))(require_whitelisted_user(self.cmd_update_floor))
+        self.bot.dp.message(Command("report"))(require_whitelisted_user(self.cmd_report))
         
         # Callback query handlers
         self.bot.dp.callback_query(F.data.startswith("main_"))(require_whitelisted_user(self.handle_main_menu))
@@ -263,6 +264,145 @@ class BotHandlers:
         except Exception as e:
             logger.error(f"Error in update_floor command: {e}")
             await status_msg.edit_text(f"❌ Unexpected error: {str(e)}")
+
+    async def cmd_report(self, message: types.Message):
+        """Generate text report based on Google Sheets data"""
+        from modules.google_sheets.sheets_client import SheetsClient
+        from config import GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_PATH
+        
+        # Validate prerequisites
+        if not GOOGLE_SHEETS_KEY:
+            await message.answer("❌ Google Sheets key not configured in environment")
+            return
+        
+        # Send processing message
+        status_msg = await message.answer("📊 **Generating report...**\n\nLoading data from Google Sheets...", parse_mode="Markdown")
+        
+        try:
+            # Initialize sheets client
+            sheets_client = SheetsClient(GOOGLE_CREDENTIALS_PATH)
+            if not sheets_client.authenticate():
+                await status_msg.edit_text("❌ Failed to authenticate with Google Sheets")
+                return
+            
+            # Get all report data
+            report_data = sheets_client.get_all_report_data(GOOGLE_SHEETS_KEY)
+            if not report_data:
+                await status_msg.edit_text("❌ No valid data found in Google Sheets")
+                return
+            
+            await status_msg.edit_text("📊 **Generating report...**\n\nFormatting report...", parse_mode="Markdown")
+            
+            # Generate report
+            report_text = self.format_report(report_data)
+            
+            # Split message if too long (Telegram limit is 4096 characters)
+            if len(report_text) <= 4096:
+                await status_msg.edit_text(report_text, parse_mode="Markdown")
+            else:
+                # Send in parts
+                await status_msg.edit_text("📊 **Report Generated**\n\nSending report in parts...", parse_mode="Markdown")
+                
+                # Split into chunks
+                chunks = self.split_report(report_text, 4000)  # Leave some margin
+                for i, chunk in enumerate(chunks):
+                    if i == 0:
+                        await status_msg.edit_text(chunk)
+                    else:
+                        await message.answer(chunk)
+                        
+        except Exception as e:
+            logger.error(f"Error in report command: {e}")
+            await status_msg.edit_text(f"❌ Unexpected error: {str(e)}")
+    
+    def format_report(self, report_data: list) -> str:
+        """Format report data into the required text format"""
+        
+        # Greeting and header
+        report_lines = [
+            "Всех приветствую!",
+            "",
+            "Аналитическая сводка (на текущий момент):",
+            "FP:"
+        ]
+        
+        # Floor prices section
+        for data in report_data:
+            if data['floor_price'] > 0:
+                report_lines.append(f"📦 {data['collection_name']}: Lowest: {data['floor_price']:.2f} TON")
+        
+        report_lines.append("")  # Empty line after FP section
+        
+        # Individual collection details
+        total_unrealized_pnl = 0.0
+        total_spent = 0.0
+        
+        for data in report_data:
+            collection_name = data['collection_name']
+            stickerpack_name = data['stickerpack_name']
+            total_buys = data['total_buys']
+            percent_supply = data['percent_supply']
+            avg_buy_price = data['avg_buy_price']
+            unrealized_pnl = data['unrealized_pnl']
+            
+            # Calculate total spent for this collection
+            collection_spent = total_buys * avg_buy_price
+            total_spent += collection_spent
+            total_unrealized_pnl += unrealized_pnl
+            
+            # Format the collection section
+            report_lines.append(f"{collection_name} {stickerpack_name}:")
+            report_lines.append(f"У нас {total_buys} штук ({percent_supply:.2f}% от общего саплая), по средней {avg_buy_price:.3f}")
+            
+            # Format PnL message
+            if unrealized_pnl > 0:
+                if unrealized_pnl > 10:
+                    report_lines.append(f"Вышли в плюс - {unrealized_pnl:.1f} Тон")
+                else:
+                    report_lines.append(f"Вышли в небольшой плюс - {unrealized_pnl:.2f} ТОН")
+            elif unrealized_pnl < 0:
+                report_lines.append(f"Минус {abs(unrealized_pnl):.0f} Тон")
+            else:
+                report_lines.append("В ноле")
+            
+            report_lines.append("")  # Empty line after each collection
+        
+        # Summary section
+        report_lines.extend([
+            "Общая статистика (суммарная):",
+            f"Всего потрачено на маркетах, Ton: {total_spent:,.2f}",
+            f"Общий unrealized PnL, Ton: {total_unrealized_pnl:,.3f}"
+        ])
+        
+        return "\n".join(report_lines)
+    
+    def split_report(self, text: str, max_length: int) -> list:
+        """Split report into chunks if it's too long"""
+        if len(text) <= max_length:
+            return [text]
+        
+        chunks = []
+        lines = text.split('\n')
+        current_chunk = []
+        current_length = 0
+        
+        for line in lines:
+            line_length = len(line) + 1  # +1 for newline
+            
+            if current_length + line_length > max_length and current_chunk:
+                # Save current chunk and start a new one
+                chunks.append('\n'.join(current_chunk))
+                current_chunk = [line]
+                current_length = line_length
+            else:
+                current_chunk.append(line)
+                current_length += line_length
+        
+        # Add the last chunk
+        if current_chunk:
+            chunks.append('\n'.join(current_chunk))
+        
+        return chunks
 
     async def cmd_settings(self, message: types.Message):
         """Show main settings menu"""

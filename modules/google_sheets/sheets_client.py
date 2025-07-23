@@ -1,6 +1,6 @@
 import gspread
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -94,4 +94,92 @@ class SheetsClient:
             return True
         except Exception as e:
             logger.error(f"Error updating floor price in {worksheet.title}: {e}")
-            return False 
+            return False
+    
+    def get_worksheet_report_data(self, worksheet: gspread.Worksheet) -> Optional[Dict[str, Any]]:
+        """Extract all report data from a single worksheet"""
+        try:
+            # Get collection info
+            collection_name, stickerpack_name = self.get_collection_info(worksheet)
+            if not collection_name or not stickerpack_name:
+                return None
+            
+            # Get all required values
+            floor_price = worksheet.cell(
+                ReportDataCells.floor_price_cell[0], 
+                ReportDataCells.floor_price_cell[1]
+            ).value
+            
+            total_buys = worksheet.cell(
+                ReportDataCells.total_buys_cell[0], 
+                ReportDataCells.total_buys_cell[1]
+            ).value
+            
+            percent_supply = worksheet.cell(
+                ReportDataCells.percents_of_total_supply[0], 
+                ReportDataCells.percents_of_total_supply[1]
+            ).value
+            
+            avg_buy_price = worksheet.cell(
+                ReportDataCells.avg_buy_price[0], 
+                ReportDataCells.avg_buy_price[1]
+            ).value
+            
+            unrealized_pnl = worksheet.cell(
+                ReportDataCells.unrealized_pnl[0], 
+                ReportDataCells.unrealized_pnl[1]
+            ).value
+            
+            # Convert string values to appropriate types
+            def safe_float(value):
+                if value is None or value == "":
+                    return 0.0
+                try:
+                    # Remove any percentage signs and convert
+                    if isinstance(value, str):
+                        value = value.replace('%', '').replace(',', '.')
+                    return float(value)
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            def safe_int(value):
+                if value is None or value == "":
+                    return 0
+                try:
+                    return int(float(str(value).replace(',', '.')))
+                except (ValueError, TypeError):
+                    return 0
+            
+            return {
+                'worksheet_title': worksheet.title,
+                'collection_name': collection_name,
+                'stickerpack_name': stickerpack_name,
+                'floor_price': safe_float(floor_price),
+                'total_buys': safe_int(total_buys),
+                'percent_supply': safe_float(percent_supply),
+                'avg_buy_price': safe_float(avg_buy_price),
+                'unrealized_pnl': safe_float(unrealized_pnl)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error extracting report data from {worksheet.title}: {e}")
+            return None
+    
+    def get_all_report_data(self, sheet_key: str) -> List[Dict[str, Any]]:
+        """Get report data from all worksheets"""
+        try:
+            worksheets = self.get_all_worksheets(sheet_key)
+            report_data = []
+            
+            for worksheet in worksheets:
+                data = self.get_worksheet_report_data(worksheet)
+                if data:
+                    report_data.append(data)
+                else:
+                    logger.warning(f"Skipped worksheet {worksheet.title} - missing or invalid data")
+            
+            return report_data
+            
+        except Exception as e:
+            logger.error(f"Error getting all report data: {e}")
+            return [] 
