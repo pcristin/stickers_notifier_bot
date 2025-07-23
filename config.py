@@ -51,4 +51,8 @@ ERROR_RETRY_INTERVAL = int(os.getenv("ERROR_RETRY_INTERVAL", 60))   # 1 minute i
 
 # Default notification settings
 DEFAULT_BUY_MULTIPLIER = 2.0
-DEFAULT_SELL_MULTIPLIER = 3.0 
+DEFAULT_SELL_MULTIPLIER = 3.0
+
+# Google Sheets configuration
+GOOGLE_SHEETS_KEY = os.getenv("GOOGLE_SHEETS_KEY")
+GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", ".credentials.json") 

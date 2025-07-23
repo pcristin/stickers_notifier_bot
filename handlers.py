@@ -1,7 +1,5 @@
 import logging
 import uuid
-import json
-import os
 from datetime import datetime
 from aiogram import F, types
 from aiogram.filters import Command
@@ -9,9 +7,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from auth import require_whitelisted_user
-from user_states import UserState, WallData
+from user_states import UserState
 from utils import escape_markdown, clean_marketplace_name
-from config import WHITELISTED_USER_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +23,7 @@ class BotHandlers:
         self.bot.dp.message(Command("cancel"))(require_whitelisted_user(self.cmd_cancel))
         self.bot.dp.message(Command("cleanup_users"))(require_whitelisted_user(self.cmd_cleanup_users))
         self.bot.dp.message(Command("wall"))(require_whitelisted_user(self.cmd_wall))
+        self.bot.dp.message(Command("update_floor"))(require_whitelisted_user(self.cmd_update_floor))
         
         # Callback query handlers
         self.bot.dp.callback_query(F.data.startswith("main_"))(require_whitelisted_user(self.handle_main_menu))
@@ -153,7 +151,119 @@ class BotHandlers:
             logger.error(f"Error loading collections for wall: {e}")
             await loading_msg.edit_text("❌ Error loading collections. Please try again later.")
             self.bot.state_manager.reset_user_session(user_id)
+    
+    async def cmd_update_floor(self, message: types.Message):
+        """Update floor prices in Google Sheets from scanner API"""
+        from modules.google_sheets.sheets_client import SheetsClient
+        from config import GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_PATH
         
+        # Validate prerequisites
+        if not GOOGLE_SHEETS_KEY:
+            await message.answer("❌ Google Sheets key not configured in environment")
+            return
+            
+        if not self.bot.api_client:
+            await message.answer("❌ API client not available")
+            return
+        
+        # Send processing message
+        status_msg = await message.answer("🔄 **Updating floor prices...**\n\nInitializing...", parse_mode="Markdown")
+        
+        try:
+            # Initialize sheets client
+            sheets_client = SheetsClient(GOOGLE_CREDENTIALS_PATH)
+            if not sheets_client.authenticate():
+                await status_msg.edit_text("❌ Failed to authenticate with Google Sheets")
+                return
+            
+            await status_msg.edit_text("🔄 **Updating floor prices...**\n\n📊 Fetching current price data...", parse_mode="Markdown")
+            
+            # Get cached price bundles (uses existing cache mechanism)
+            bundle_data = await self.bot.api_client.fetch_price_bundles()
+            if not bundle_data:
+                await status_msg.edit_text("❌ Failed to fetch price data from scanner API")
+                return
+            
+            await status_msg.edit_text("🔄 **Updating floor prices...**\n\n📋 Loading worksheets...", parse_mode="Markdown")
+            
+            # Get all worksheets
+            worksheets = sheets_client.get_all_worksheets(GOOGLE_SHEETS_KEY)
+            if not worksheets:
+                await status_msg.edit_text("❌ No worksheets found in Google Sheets")
+                return
+            
+            # Track results
+            results = {
+                'updated': 0,
+                'skipped': 0,
+                'errors': 0,
+                'details': []
+            }
+            
+            # Process each worksheet
+            for i, worksheet in enumerate(worksheets):
+                await status_msg.edit_text(
+                    f"🔄 **Updating floor prices...**\n\n"
+                    f"📝 Processing worksheet {i+1}/{len(worksheets)}: {worksheet.title}",
+                    parse_mode="Markdown"
+                )
+                
+                # Get collection info
+                collection_name, stickerpack_name = sheets_client.get_collection_info(worksheet)
+                
+                if not collection_name or not stickerpack_name:
+                    results['skipped'] += 1
+                    results['details'].append(f"⚠️ {worksheet.title}: Missing collection/stickerpack info")
+                    continue
+                
+                # Find matching collection in API data
+                matching_bundle = self.bot.api_client.find_collection_by_names(
+                    bundle_data, collection_name, stickerpack_name
+                )
+                
+                if not matching_bundle:
+                    results['skipped'] += 1  
+                    results['details'].append(f"⚠️ {worksheet.title}: No API data for {collection_name} - {stickerpack_name}")
+                    continue
+                
+                # Get lowest price
+                floor_price = self.bot.api_client.get_lowest_price(matching_bundle)
+                if floor_price is None:
+                    results['errors'] += 1
+                    results['details'].append(f"❌ {worksheet.title}: No price data available")
+                    continue
+                
+                # Update floor price
+                if sheets_client.update_floor_price(worksheet, floor_price):
+                    results['updated'] += 1
+                    results['details'].append(f"✅ {worksheet.title}: Updated to {floor_price} TON")
+                else:
+                    results['errors'] += 1
+                    results['details'].append(f"❌ {worksheet.title}: Failed to update")
+            
+            # Format final summary
+            summary_text = (
+                f"📊 **Floor Price Update Complete**\n\n"
+                f"✅ **Updated:** {results['updated']} worksheets\n"
+                f"⚠️ **Skipped:** {results['skipped']} worksheets\n"
+                f"❌ **Errors:** {results['errors']} worksheets\n\n"
+            )
+            
+            # Add details (limit to avoid message length issues)
+            if results['details']:
+                summary_text += "**Details:**\n"
+                for detail in results['details'][:10]:  # Show max 10 details
+                    summary_text += f"{detail}\n"
+                
+                if len(results['details']) > 10:
+                    summary_text += f"\n... and {len(results['details']) - 10} more"
+            
+            await status_msg.edit_text(summary_text, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error in update_floor command: {e}")
+            await status_msg.edit_text(f"❌ Unexpected error: {str(e)}")
+
     async def cmd_settings(self, message: types.Message):
         """Show main settings menu"""
         keyboard = self.get_main_settings_keyboard()

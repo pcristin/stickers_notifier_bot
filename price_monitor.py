@@ -11,9 +11,8 @@ from config import (
 logger = logging.getLogger(__name__)
 
 class PriceMonitor:
-    def __init__(self, api_client, harbor_client, notification_manager, user_settings, save_user_settings_callback):
+    def __init__(self, api_client, notification_manager, user_settings, save_user_settings_callback):
         self.api_client = api_client
-        self.harbor_client = harbor_client
         self.notification_manager = notification_manager
         self.user_settings = user_settings
         self.save_user_settings_callback = save_user_settings_callback
@@ -49,14 +48,9 @@ class PriceMonitor:
         if not self.api_client:
             logger.error("API client not initialized")
             return
-
-        if not self.harbor_client:
-            logger.error("Harbor client not initialized")
-            return
             
         # Fetch current price bundles
         bundles = await self.api_client.fetch_price_bundles()
-        harbor_floor_prices = await self.harbor_client.fetch_floor_price_harbor()
         if not bundles:
             logger.warning("No price bundles received from API")
             return
@@ -65,8 +59,7 @@ class PriceMonitor:
         current_time = datetime.now().isoformat()
         self.price_cache = {
             "last_updated": current_time,
-            "bundles": bundles,
-            "harbor_floor_prices": harbor_floor_prices
+            "bundles": bundles
         }
         self.save_price_cache()
         
@@ -93,14 +86,13 @@ class PriceMonitor:
                 total_collections_checked += 1
                 await self.check_collection_price(
                     user_id, collection_id, collection, 
-                    bundles, notification_settings,
-                    harbor_floor_prices
+                    bundles, notification_settings
                 )
                 
         logger.info(f"Price check completed for {len(bundles)} bundles, checked {total_collections_checked} user collections")
     
     async def check_collection_price(self, user_id: str, collection_id: str, collection: Dict, 
-                                   bundles: List[Dict], notification_settings: Dict, harbor_floor_prices: Dict = None):
+                                   bundles: List[Dict], notification_settings: Dict):
         """Check price for a specific collection and send notifications if needed"""
         try:
             # Find the collection in bundles

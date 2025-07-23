@@ -5,7 +5,6 @@ from typing import Dict
 import aiohttp
 from aiogram import Bot, Dispatcher
 
-from api.harbor.harbor_client import HarborClient
 from api_client import Scanner
 from user_states import UserStateManager
 from notifications import NotificationManager
@@ -23,7 +22,6 @@ class StickerNotifierBot:
         self.dp = Dispatcher()
         self.session = None
         self.api_client = None
-        self.harbor_client = None
         
         # Load user settings
         self.user_settings = self.load_user_settings()
@@ -42,8 +40,7 @@ class StickerNotifierBot:
         """Initialize managers that depend on the bot instance"""
         self.notification_manager = NotificationManager(self.bot)
         self.price_monitor = PriceMonitor(
-            self.api_client, 
-            self.harbor_client, 
+            self.api_client,
             self.notification_manager, 
             self.user_settings, 
             self.save_user_settings
@@ -105,7 +102,6 @@ class StickerNotifierBot:
             
             # Initialize API clients
             self.api_client = Scanner(self.session)
-            self.harbor_client = HarborClient()
             
             # Initialize managers that depend on other components
             self.initialize_managers()

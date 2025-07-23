@@ -104,3 +104,9 @@ ipython_config.py
 .dmypy.json
 dmypy.json
 session.session
+
+# creds
+.credentials.json
+
+# Examples folder (for personal usage)
+examples/
