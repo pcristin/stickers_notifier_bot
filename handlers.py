@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from aiogram import F, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InaccessibleMessage, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from auth import require_whitelisted_user
@@ -38,6 +38,9 @@ class BotHandlers:
     
     async def cmd_start(self, message: types.Message):
         """Handle /start command"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return 
         user_id = message.from_user.id
         user_id_str = str(user_id)
         
@@ -54,6 +57,9 @@ class BotHandlers:
     
     async def cmd_cancel(self, message: types.Message):
         """Handle /cancel command to exit any active flow"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return 
         user_id = message.from_user.id
         
         if self.bot.state_manager.is_user_in_flow(user_id):
@@ -83,6 +89,9 @@ class BotHandlers:
         
     async def cmd_wall(self, message: types.Message):
         """Handle /wall command to check sell order walls"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return 
         user_id = message.from_user.id
         
         # Check if API client is available
@@ -352,26 +361,18 @@ class BotHandlers:
             
             # Format the collection section
             report_lines.append(f"{collection_name} {stickerpack_name}:")
-            report_lines.append(f"У нас {total_buys} штук ({percent_supply:.2f}% от общего саплая), по средней {avg_buy_price:.3f}")
+            report_lines.append(f"У нас *{total_buys}* штук (*{percent_supply:.2f}%* от общего саплая), по средней *{avg_buy_price:.3f}*")
             
             # Format PnL message
-            if unrealized_pnl > 0:
-                if unrealized_pnl > 10:
-                    report_lines.append(f"Вышли в плюс - {unrealized_pnl:.1f} Тон")
-                else:
-                    report_lines.append(f"Вышли в небольшой плюс - {unrealized_pnl:.2f} ТОН")
-            elif unrealized_pnl < 0:
-                report_lines.append(f"Минус {abs(unrealized_pnl):.0f} Тон")
-            else:
-                report_lines.append("В ноле")
-            
+            report_lines.append(f"Unrealized PnL (TON): *{unrealized_pnl:.3f}*")
+
             report_lines.append("")  # Empty line after each collection
         
         # Summary section
         report_lines.extend([
             "Общая статистика (суммарная):",
-            f"Всего потрачено на маркетах, Ton: {total_spent:,.2f}",
-            f"Общий unrealized PnL, Ton: {total_unrealized_pnl:,.3f}"
+            f"Всего потрачено на маркетах, Ton: *{total_spent:,.2f}*",
+            f"Общий unrealized PnL, Ton: *{total_unrealized_pnl:,.3f}*"
         ])
         
         return "\n".join(report_lines)
@@ -432,6 +433,8 @@ class BotHandlers:
         
     async def handle_main_menu(self, callback: types.CallbackQuery):
         """Handle main menu callbacks"""
+        if callback.data == None:
+            return "Unexpected error occur"
         action = callback.data.split("_", 1)[1]
         
         if action == "collections":
@@ -449,7 +452,12 @@ class BotHandlers:
                 "⚙️ Settings Menu\n\n"
                 "Configure your collections and notification preferences:"
             )
+
+            # Check if callback.message does not exist or is inaccessible
+            if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
             await callback.message.edit_text(text, reply_markup=keyboard)
+
             
     async def show_collection_settings(self, callback: types.CallbackQuery):
         """Show collection configuration options"""
@@ -479,7 +487,10 @@ class BotHandlers:
             f"You have {len(user_collections)} collection(s) configured.\n"
             "Select a collection to edit or add a new one:"
         )
-        
+
+        # Check if callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
         await callback.message.edit_text(text, reply_markup=builder.as_markup())
         
     async def show_notification_settings(self, callback: types.CallbackQuery):
@@ -512,6 +523,8 @@ class BotHandlers:
             "Tap to modify these multipliers:"
         )
         
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
         await callback.message.edit_text(text, reply_markup=builder.as_markup())
         
     async def show_user_collections(self, callback: types.CallbackQuery):
@@ -523,7 +536,7 @@ class BotHandlers:
             text = "📦 No collections configured yet.\n\nUse Collection Settings to add your first collection!"
         else:
             text = "📦 Your Collections:\n\n"
-            for collection_id, collection in collections.items():
+            for _, collection in collections.items():
                 # Escape Markdown characters
                 escaped_collection_name = escape_markdown(collection['collection_name'])
                 escaped_stickerpack_name = escape_markdown(collection['stickerpack_name'])
@@ -539,7 +552,8 @@ class BotHandlers:
         builder.row(
             InlineKeyboardButton(text="⬅️ Back to Main", callback_data="main_back")
         )
-        
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
         
     async def manual_price_check(self, callback: types.CallbackQuery):
@@ -566,11 +580,17 @@ class BotHandlers:
             InlineKeyboardButton(text="⬅️ Back to Main", callback_data="main_back")
         )
         
+       # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, reply_markup=builder.as_markup())
         
     async def handle_collection_settings(self, callback: types.CallbackQuery):
         """Handle collection-specific settings"""
-        user_id = callback.from_user.id
+        if callback.data == None:
+            logger.error("Callback data is None, canceling context")
+            return
         action_parts = callback.data.split("_")
         
         if len(action_parts) < 2:
@@ -606,6 +626,10 @@ class BotHandlers:
             "Type /cancel to abort this process."
         )
         
+       # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
     
@@ -655,7 +679,11 @@ class BotHandlers:
             f"💰 **Launch Price:** {collection['launch_price']} TON\n\n"
             f"Select what you want to edit:"
         )
-        
+
+       # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
         await callback.answer()
     
@@ -686,12 +714,19 @@ class BotHandlers:
             f"📑 Sticker Pack: **{escaped_stickerpack_name}**\n\n"
             f"This action cannot be undone!"
         )
-        
+
+       # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
         await callback.answer()
          
     async def handle_notification_settings(self, callback: types.CallbackQuery):
         """Handle notification settings changes"""
+        if callback.data == None:
+            logger.error("Callback data is None!")
+            return
         action_parts = callback.data.split("_")
         
         if len(action_parts) < 2:
@@ -699,7 +734,6 @@ class BotHandlers:
             return
             
         action = action_parts[1]
-        user_id = callback.from_user.id
         
         if action == "buy" and len(action_parts) > 2 and action_parts[2] == "multiplier":
             await self.start_buy_multiplier_editing(callback)
@@ -728,7 +762,11 @@ class BotHandlers:
             f"Valid range: 0.1 to 100\n\n"
             f"Type /cancel to abort this change."
         )
-        
+
+       # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
     
@@ -752,12 +790,19 @@ class BotHandlers:
             f"Valid range: 0.1 to 100\n\n"
             f"Type /cancel to abort this change."
         )
-        
+
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
     
     async def handle_text_input(self, message: types.Message):
         """Handle text input from users during flows"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occur")
+             return
         user_id = message.from_user.id
         user_state = self.bot.state_manager.get_user_state(user_id)
         
@@ -765,6 +810,9 @@ class BotHandlers:
             # User not in any flow, ignore
             return
             
+        if message.text == None:
+            await message.answer("❌ Unexpected error occured")
+            return
         text = message.text.strip()
         
         if user_state == UserState.ADDING_COLLECTION_NAME:
@@ -782,6 +830,9 @@ class BotHandlers:
     
     async def process_collection_name_input(self, message: types.Message, text: str):
         """Process collection name input"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return
         user_id = message.from_user.id
         
         if len(text) < 2 or len(text) > 50:
@@ -809,6 +860,9 @@ class BotHandlers:
     
     async def process_stickerpack_name_input(self, message: types.Message, text: str):
         """Process sticker pack name input"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return  
         user_id = message.from_user.id
         
         if len(text) < 2 or len(text) > 50:
@@ -840,6 +894,9 @@ class BotHandlers:
     
     async def process_launch_price_input(self, message: types.Message, text: str):
         """Process launch price input"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return 
         user_id = message.from_user.id
         
         try:
@@ -886,6 +943,9 @@ class BotHandlers:
     
     async def process_buy_multiplier_input(self, message: types.Message, text: str):
         """Process buy multiplier input"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return 
         user_id = message.from_user.id
         
         try:
@@ -914,6 +974,9 @@ class BotHandlers:
     
     async def process_sell_multiplier_input(self, message: types.Message, text: str):
         """Process sell multiplier input"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return 
         user_id = message.from_user.id
         
         try:
@@ -942,6 +1005,9 @@ class BotHandlers:
     
     async def handle_confirmation(self, callback: types.CallbackQuery):
         """Handle confirmation callbacks"""
+        if callback.data == None:
+            logger.error("Callback.data is None")
+            return
         action_parts = callback.data.split("_")
         
         if len(action_parts) < 2:
@@ -999,7 +1065,11 @@ class BotHandlers:
             f"🔔 You'll receive notifications when prices meet your thresholds.\n\n"
             f"Use /settings to manage your collections."
         )
-        
+
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer("Collection added!")
     
@@ -1009,7 +1079,11 @@ class BotHandlers:
         self.bot.state_manager.reset_user_session(user_id)
         
         text = "❌ Collection creation cancelled.\n\nUse /settings to access the menu."
-        
+
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text)
         await callback.answer("Cancelled")
     
@@ -1038,12 +1112,19 @@ class BotHandlers:
             f"has been removed from your watchlist.\n\n"
             f"Use /settings to manage your remaining collections."
         )
-        
+
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer("Collection deleted!")
 
     async def process_wall_ton_amount_input(self, message: types.Message, text: str):
         """Process wall TON amount input"""
+        if message.from_user == None:
+             await message.answer("❌ Unexpected error occured! ")
+             return
         user_id = message.from_user.id
         
         try:
@@ -1164,6 +1245,9 @@ class BotHandlers:
 
     async def handle_wall_callbacks(self, callback: types.CallbackQuery):
         """Handle wall-related callbacks"""
+        if callback.data == None:
+            logger.error("Callback.data is empty!")
+            return
         action_parts = callback.data.split("_")
         
         if len(action_parts) < 2:
@@ -1171,7 +1255,6 @@ class BotHandlers:
             return
             
         action = action_parts[1]
-        user_id = callback.from_user.id
         
         if action == "collection" and len(action_parts) > 2:
             collection_index = int(action_parts[2])
@@ -1241,8 +1324,12 @@ class BotHandlers:
             f"📦 Collection: **{escaped_collection_name}**\n\n"
             f"Found **{len(stickerpacks)}** sticker packs in this collection.\n\n"
             f"📑 **Select a sticker pack:**"
-        )
-        
+         )
+
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
     async def handle_wall_stickerpack_selection(self, callback: types.CallbackQuery, stickerpack_index: int):
@@ -1288,6 +1375,10 @@ class BotHandlers:
             f"Type /cancel to abort this process."
         )
         
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, parse_mode="Markdown")
 
     async def handle_wall_cancel(self, callback: types.CallbackQuery):
@@ -1295,6 +1386,10 @@ class BotHandlers:
         user_id = callback.from_user.id
         self.bot.state_manager.reset_user_session(user_id)
         
+       # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text("❌ Wall analysis cancelled.\n\nUse /wall to start again.")
         await callback.answer("Cancelled")
 
@@ -1332,6 +1427,10 @@ class BotHandlers:
             f"Found **{len(wall_data.available_collections)}** collections with sticker packs.\n\n"
             "📦 **Select a collection:**"
         )
-        
+
+        # Check is callback.message does not exist or is inaccessible
+        if isinstance(callback.message, InaccessibleMessage) or callback.message == None:
+                return "The message is no longer accessible"
+ 
         await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
         await callback.answer("Back to collections") 

@@ -107,6 +107,9 @@ class StickerNotifierBot:
             self.initialize_managers()
             
             # Start background tasks
+            if self.price_monitor == None:
+                logger.error("PriceMonitor was not initialized yet! Try again runing /start command.")
+                return 
             asyncio.create_task(self.price_monitor.start_monitoring())
             
             # Start polling

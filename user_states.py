@@ -1,7 +1,6 @@
 from enum import Enum
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from dataclasses import dataclass, field
-import json
 
 class UserState(Enum):
     """User interaction states"""

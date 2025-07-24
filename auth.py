@@ -12,7 +12,7 @@ def require_whitelisted_user(func):
         user_id = None
         
         # Handle different event types - aiogram passes specific types
-        if isinstance(event, types.Message):
+        if isinstance(event, types.Message) and event.from_user != None:
             user_id = event.from_user.id
         elif isinstance(event, types.CallbackQuery):
             user_id = event.from_user.id

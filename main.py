@@ -1,5 +1,4 @@
 import asyncio
-import logging
 
 from bot_core import StickerNotifierBot
 from handlers import BotHandlers
