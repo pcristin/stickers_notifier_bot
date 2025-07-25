@@ -26,7 +26,7 @@ def setup_logging():
     file_handler = logging.handlers.RotatingFileHandler(
         os.path.join(LOGS_DIR, 'bot.log'),
         maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
+        backupCount=2
     )
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(file_formatter)
