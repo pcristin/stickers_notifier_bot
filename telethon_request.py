@@ -22,8 +22,8 @@ base_webapp = 'https://stickerscan.online/api/auth/telegram'
 
 
 async def get_webapp_url():
-    client = TelegramClient('session', api_id, api_hash)
-    await client.start()  # phone+code on first run
+    client = TelegramClient(session='session', api_id=api_id, api_hash=api_hash)
+    client.start()  # phone+code on first run
 
     res = await client(functions.messages.RequestWebViewRequest(
         peer         = peer,
@@ -36,7 +36,7 @@ async def get_webapp_url():
         start_param  = None,
         theme_params = types.DataJSON(data='{}'),
     ))
-    await client.disconnect()
+    client.disconnect()
     return res.url
 
 def fragment_to_initdata(frag: str) -> str:

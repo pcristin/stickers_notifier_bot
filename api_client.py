@@ -1,13 +1,11 @@
-import json
-import hashlib
-import hmac
 import time
-import urllib.parse
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TypedDict
 from urllib.parse import urlparse, parse_qsl, unquote_plus
 import aiohttp
 import logging
 from telethon import TelegramClient, functions, types
+
+from typing import Union
 
 from config import (
     AUTH_ENDPOINT, PRICE_BUNDLES_ENDPOINT,
@@ -15,6 +13,11 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# MarketEntry is TypedDict class for annotation clarity
+class MarketEntry(TypedDict):
+    price: float
+    url: str
 
 class Scanner:
     def __init__(self, session: aiohttp.ClientSession):
@@ -30,23 +33,23 @@ class Scanner:
         self.peer = '@sticker_scan_bot'
         self.base_webapp = 'https://stickerscan.online/api/auth/telegram'
         
-    async def _get_webapp_url(self) -> str:
+    async def _get_webapp_url(self) -> Union[str, None]:
         """Get webapp URL using Telethon"""
-        client = TelegramClient('session', self.api_id, self.api_hash)
-        await client.start()
-        
-        try:
-            res = await client(functions.messages.RequestWebViewRequest(
-                peer=self.peer,
-                bot=self.bot_username,
-                platform='web',
-                from_bot_menu=True,
-                url=self.base_webapp,
-                theme_params=types.DataJSON(data='{}'),
-            ))
-            return res.url
-        finally:
-            await client.disconnect()
+        async with TelegramClient('session', self.api_id, self.api_hash) as client:
+            try:
+                bot_entity = await client.get_entity(self.bot_username)
+                res = await client(functions.messages.RequestWebViewRequest(
+                    peer=bot_entity,
+                    bot=bot_entity,
+                    platform='web',
+                    from_bot_menu=True,
+                    url=self.base_webapp,
+                    theme_params=types.DataJSON(data='{}'),
+                ))
+                return res.url
+            except Exception as e:
+                logger.error(f"Something went wrong: {e}")
+                return None
     
     def _fragment_to_initdata(self, frag: str) -> str:
         """
@@ -69,7 +72,7 @@ class Scanner:
         logger.info(f"WebView URL obtained: {webview_url}")
         
         # 2) pull off the "#..." fragment
-        frag = urlparse(webview_url).fragment
+        frag = str(urlparse(webview_url).fragment)
         init_data = self._fragment_to_initdata(frag)
         logger.info("initData extracted from WebView URL")
         
@@ -112,7 +115,9 @@ class Scanner:
                     if self.access_token:
                         # For JWT tokens, expiration is typically 1 hour
                         self.token_expires_at = int(time.time()) + 3600
-                        
+                    if self.user_data == None:
+                        logger.error("For some reasons user_data is empty")
+                        return False
                     logger.info(f"Authentication successful. User: {self.user_data.get('firstName', 'Unknown')}")
                     return True
                 else:
@@ -203,7 +208,7 @@ class Scanner:
                 
         return prices
     
-    def get_marketplace_data(self, bundle: Dict) -> Dict[str, Dict[str, any]]:
+    def get_marketplace_data(self, bundle: Dict) -> Dict[str, MarketEntry]:
         """Extract marketplace data including prices and URLs from a bundle"""
         marketplace_data = {}
         marketplaces = bundle.get("marketplaces", [])

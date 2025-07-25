@@ -131,31 +131,9 @@ class NotificationManager:
         except Exception as e:
             logger.error(f"Failed to send price notification to user {user_id}: {e}")
             # Try sending without Markdown as fallback
-            try:
-                # Format markets for fallback (plain text)
-                fallback_markets = []
-                for market_data in notification['markets']:
-                    if isinstance(market_data, dict):
-                        raw_market_name = market_data.get('name', 'Unknown')
-                        price = market_data.get('price', 0)
-                        # Clean the marketplace name for better display
-                        display_name = clean_marketplace_name(raw_market_name)
-                        fallback_markets.append(f"• {display_name}: {price} TON")
-                    else:
-                        fallback_markets.append(f"• {market_data}")
-                
-                fallback_message = (
-                    f"{emoji} {title}\n\n"
-                    f"Collection: {notification['collection']}\n"
-                    f"Sticker Pack: {notification['stickerpack']}\n"
-                    f"Price: {price_info}\n\n"
-                    f"Available on:\n" + "\n".join(fallback_markets) + "\n\n"
-                    f"Time: {datetime.now().strftime('%H:%M:%S')}"
-                )
-                await self.bot.send_message(user_id, fallback_message)
-                logger.info(f"Sent fallback {notification['type']} notification to user {user_id}")
-            except Exception as fallback_error:
-                logger.error(f"Failed to send fallback notification to user {user_id}: {fallback_error}")
+            fallback_message = "Could not parse HTML. Got an error."
+            await self.bot.send_message(user_id, fallback_message)
+            logger.info(f"Sent fallback {notification['type']} notification to user {user_id}")
          
     async def send_notification(self, user_id: int, message: str):
         """Send notification to user"""
