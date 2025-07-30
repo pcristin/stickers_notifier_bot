@@ -9,7 +9,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.utils.text_decorations import markdown_decoration as md
 from aiogram.enums import ParseMode
 
 from auth import require_whitelisted_user
@@ -413,7 +412,9 @@ class BotHandlers:
         """Format report data into the required text format"""
 
         # First dateline
-        dateline = [f"*__{md.quote(datetime.now().strftime('%d.%m.%y %H.%M'))}__*"]
+        dateline = [
+            f"*__{escape_markdown(datetime.now().strftime('%d.%m.%y %H.%M'))}__*"
+        ]
 
         dateline.append("")  # Empty line after line with report date and time
 
@@ -441,14 +442,16 @@ class BotHandlers:
 
             # Format the collection section
             dateline.append(f"{collection_name} {stickerpack_name}:")
-            dateline.append(f"FP: *{md.quote(f'{floor_price:.3f}')} TON*")
+            dateline.append(f"FP: *{escape_markdown(f'{floor_price:.3f}')} TON*")
             dateline.append(
-                f"Own: *{total_left} ({md.quote(f'{percent_supply:.3f}')}% supply)*"
+                f"Own: *{total_left} ({escape_markdown(f'{percent_supply:.3f}')}% supply)*"
             )
-            dateline.append(f"Avg price: *{md.quote(f'{avg_buy_price:.2f}')}*")
-            dateline.append(f"Unrealized PnL: *{md.quote(f'{unrealized_pnl:.3f}')}*")
+            dateline.append(f"Avg price: *{escape_markdown(f'{avg_buy_price:.2f}')}*")
+            dateline.append(
+                f"Unrealized PnL: *{escape_markdown(f'{unrealized_pnl:.3f}')}*"
+            )
             dateline.append(f"Total sold: *{total_sells}*")
-            dateline.append(f"Relized PnL: *{md.quote(f'{realized_pnl:.3f}')}*")
+            dateline.append(f"Relized PnL: *{escape_markdown(f'{realized_pnl:.3f}')}*")
 
             dateline.append("")  # Empty line after each collection
 
@@ -456,9 +459,9 @@ class BotHandlers:
         dateline.extend(
             [
                 "Summary:",
-                f"Total spent on markets: *{md.quote(f'{total_spent:.2f}')}*"
-                f"Unrealized PnL: *{md.quote(f'{total_unrealized_pnl:.3f}')}*"
-                f"Realized PnL: *{md.quote(f'{total_realized_pnl:.3f}')}*",
+                f"Total spent on markets: *{escape_markdown(f'{total_spent:.2f}')}*"
+                f"Unrealized PnL: *{escape_markdown(f'{total_unrealized_pnl:.3f}')}*"
+                f"Realized PnL: *{escape_markdown(f'{total_realized_pnl:.3f}')}*",
             ]
         )
 
@@ -643,8 +646,10 @@ class BotHandlers:
             text = "📦 Your Collections:\n\n"
             for _, collection in collections.items():
                 # Escape Markdown characters
-                escaped_collection_name = md.quote(collection["collection_name"])
-                escaped_stickerpack_name = md.quote(collection["stickerpack_name"])
+                escaped_collection_name = escape_markdown(collection["collection_name"])
+                escaped_stickerpack_name = escape_markdown(
+                    collection["stickerpack_name"]
+                )
 
                 text += (
                     f"🏷️ **{escaped_collection_name}**\n"
@@ -790,8 +795,8 @@ class BotHandlers:
         )
 
         # Escape Markdown characters in collection data
-        escaped_collection_name = md.quote(collection["collection_name"])
-        escaped_stickerpack_name = md.quote(collection["stickerpack_name"])
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
 
         text = (
             f"✏️ Editing Collection\n\n"
@@ -837,8 +842,8 @@ class BotHandlers:
         )
 
         # Escape Markdown characters
-        escaped_collection_name = md.quote(collection["collection_name"])
-        escaped_stickerpack_name = md.quote(collection["stickerpack_name"])
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
 
         text = (
             f"⚠️ **Delete Collection?**\n\n"
@@ -1006,7 +1011,7 @@ class BotHandlers:
         )
 
         # Escape Markdown characters for display
-        escaped_text = md.quote(text)
+        escaped_text = escape_markdown(text)
 
         await message.answer(
             f"✅ Collection name: **{escaped_text}**\n\n"
@@ -1038,8 +1043,8 @@ class BotHandlers:
         collection_data = self.bot.state_manager.get_collection_data(user_id)
 
         # Escape Markdown characters for display
-        escaped_collection_name = md.quote(collection_data.collection_name)
-        escaped_stickerpack_name = md.quote(text)
+        escaped_collection_name = escape_markdown(collection_data.collection_name)
+        escaped_stickerpack_name = escape_markdown(text)
 
         await message.answer(
             f"✅ Collection: **{escaped_collection_name}**\n"
@@ -1090,8 +1095,8 @@ class BotHandlers:
         )
 
         # Escape Markdown characters in collection data
-        escaped_collection_name = md.quote(collection_data.collection_name)
-        escaped_stickerpack_name = md.quote(collection_data.stickerpack_name)
+        escaped_collection_name = escape_markdown(collection_data.collection_name)
+        escaped_stickerpack_name = escape_markdown(collection_data.stickerpack_name)
 
         text = (
             f"📋 **Confirm New Collection**\n\n"
@@ -1233,8 +1238,8 @@ class BotHandlers:
         self.bot.state_manager.reset_user_session(user_id)
 
         # Escape Markdown characters
-        escaped_collection_name = md.quote(new_collection["collection_name"])
-        escaped_stickerpack_name = md.quote(new_collection["stickerpack_name"])
+        escaped_collection_name = escape_markdown(new_collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(new_collection["stickerpack_name"])
 
         text = (
             f"🎉 **Collection Added Successfully!**\n\n"
@@ -1292,8 +1297,8 @@ class BotHandlers:
         )
 
         # Escape Markdown characters
-        escaped_collection_name = md.quote(collection["collection_name"])
-        escaped_stickerpack_name = md.quote(collection["stickerpack_name"])
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
 
         text = (
             f"🗑️ **Collection Deleted**\n\n"
@@ -1391,7 +1396,7 @@ class BotHandlers:
 
             if not target_collection:
                 await message.answer(
-                    f"❌ No sticker pack found: **{md.quote(collection_name)}** - **{escape_markdown(stickerpack_name)}**\n\n"
+                    f"❌ No sticker pack found: **{escape_markdown(collection_name)}** - **{escape_markdown(stickerpack_name)}**\n\n"
                     f"Please check the collection and sticker pack names.",
                     parse_mode="Markdown",
                 )
@@ -1420,8 +1425,8 @@ class BotHandlers:
             if total_wall == 0:
                 await message.answer(
                     f"🧱 **Wall Analysis Results**\n\n"
-                    f"🏷️ Collection: **{md.quote(collection_name)}**\n"
-                    f"📑 Sticker Pack: **{md.quote(stickerpack_name)}**\n"
+                    f"🏷️ Collection: **{escape_markdown(collection_name)}**\n"
+                    f"📑 Sticker Pack: **{escape_markdown(stickerpack_name)}**\n"
                     f"💰 Price Threshold: **{ton_amount} TON**\n\n"
                     f"❌ No sell orders found under **{ton_amount} TON**",
                     parse_mode="Markdown",
@@ -1431,8 +1436,8 @@ class BotHandlers:
             # Format results
             result_text = (
                 f"🧱 **Wall Analysis Results**\n\n"
-                f"🏷️ Collection: **{md.quote(collection_name)}**\n"
-                f"📑 Sticker Pack: **{md.quote(stickerpack_name)}**\n"
+                f"🏷️ Collection: **{escape_markdown(collection_name)}**\n"
+                f"📑 Sticker Pack: **{escape_markdown(stickerpack_name)}**\n"
                 f"💰 Price Threshold: **{ton_amount} TON**\n\n"
                 f"📊 **Sell Orders Under {ton_amount} TON:**\n\n"
             )
@@ -1442,9 +1447,7 @@ class BotHandlers:
                 if count > 0:
                     count_display = f"{count}+" if count >= 20 else str(count)
                     marketplace_clean = clean_marketplace_name(marketplace)
-                    result_text += (
-                        f"🏪 **{md.quote(marketplace_clean)}:** {count_display}\n"
-                    )
+                    result_text += f"🏪 **{escape_markdown(marketplace_clean)}:** {count_display}\n"
 
             # Add total
             total_display = f"{total_wall}+" if total_wall >= 20 else str(total_wall)
@@ -1555,7 +1558,7 @@ class BotHandlers:
         )
 
         # Escape Markdown characters
-        escaped_collection_name = md.quote(collection_name)
+        escaped_collection_name = escape_markdown(collection_name)
 
         text = (
             f"🧱 **Wall Analysis**\n\n"
@@ -1613,8 +1616,8 @@ class BotHandlers:
         self.bot.state_manager.set_user_state(user_id, UserState.WALL_TON_AMOUNT)
 
         # Escape Markdown characters
-        escaped_collection_name = md.quote(collection_name)
-        escaped_stickerpack_name = md.quote(stickerpack_name)
+        escaped_collection_name = escape_markdown(collection_name)
+        escaped_stickerpack_name = escape_markdown(stickerpack_name)
 
         text = (
             f"🧱 **Wall Analysis**\n\n"

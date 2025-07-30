@@ -102,6 +102,7 @@ status: ## Show bot status and health information
 		logs_size=$$(du -sh $(LOGS_DIR)/ | cut -f1); \
 		echo "$(BLUE)[INFO]$(RESET) Logs directory size: $$logs_size"; \
 	fi
+	@$(COMPOSE_CMD) logs -f
 
 .PHONY: logs
 logs: ## Show recent bot logs
