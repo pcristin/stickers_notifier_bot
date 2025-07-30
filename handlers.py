@@ -413,7 +413,7 @@ class BotHandlers:
 
         # First dateline
         dateline = [
-            f"*__{escape_markdown(datetime.now().strftime('%d.%m.%y %H.%M'))}__*"
+            f"*__{escape_markdown(datetime.now().strftime('%d.%m.%y %H:%M'))}__*"
         ]
 
         dateline.append("")  # Empty line after line with report date and time
@@ -441,7 +441,9 @@ class BotHandlers:
             total_realized_pnl += realized_pnl
 
             # Format the collection section
-            dateline.append(f"{escape_markdown(collection_name)} {escape_markdown(stickerpack_name)}:")
+            dateline.append(
+                f"{escape_markdown(collection_name)} {escape_markdown(stickerpack_name)}:"
+            )
             dateline.append(f"FP: *{escape_markdown(f'{floor_price:.3f}')} TON*")
             dateline.append(
                 f"Own: *{total_left} \\({escape_markdown(f'{percent_supply:.3f}')}% supply\\)*"
