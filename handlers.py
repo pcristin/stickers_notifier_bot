@@ -395,9 +395,9 @@ class BotHandlers:
                 chunks = self.split_report(report_text, 4000)  # Leave some margin
                 for i, chunk in enumerate(chunks):
                     if i == 0:
-                        await status_msg.edit_text(chunk)
+                        await status_msg.edit_text(chunk, parse_mode="Markdown")
                     else:
-                        await message.answer(chunk)
+                        await message.answer(chunk, parse_mode="Markdown")
 
         except Exception as e:
             logger.error(f"Error in report command: {e}")
