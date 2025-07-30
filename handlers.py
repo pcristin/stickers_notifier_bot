@@ -395,19 +395,22 @@ class BotHandlers:
                 chunks = self.split_report(report_text, 4000)  # Leave some margin
                 for i, chunk in enumerate(chunks):
                     if i == 0:
-                        await status_msg.edit_text(chunk, parse_mode="Markdown")
+                        await status_msg.edit_text(chunk, parse_mode="MarkdownV2")
                     else:
-                        await message.answer(chunk, parse_mode="Markdown")
+                        await message.answer(chunk, parse_mode="MarkdownV2")
 
         except Exception as e:
             logger.error(f"Error in report command: {e}")
             await status_msg.edit_text(f"❌ Unexpected error: {str(e)}")
 
+    # TODO: Make all messages supported by MarkdownV2 by writing util wrapper func for escaped characters
     def format_report(self, report_data: list) -> str:
         """Format report data into the required text format"""
 
         # First dateline
-        dateline = [f"*{datetime.now().strftime('%d.%m.%y %H.%M')}*"]
+        dateline = [
+            f"*__{escape_markdown(datetime.now().strftime('%d.%m.%y %H.%M'))}__*"
+        ]
 
         dateline.append("")  # Empty line after line with report date and time
 
@@ -435,23 +438,26 @@ class BotHandlers:
 
             # Format the collection section
             dateline.append(f"{collection_name} {stickerpack_name}:")
-            dateline.append(f"FP: *{floor_price} TON*")
-            dateline.append(f"Own: *{total_left} ({percent_supply:.3f}% supply)*")
-            dateline.append(f"Avg price: *{avg_buy_price:.2f}*")
-            dateline.append(f"Unrealized PnL: *{unrealized_pnl:.3f}*")
+            dateline.append(f"FP: *{escape_markdown(f'{floor_price:.3f}')} TON*")
+            dateline.append(
+                f"Own: *{total_left} ({escape_markdown(f'{percent_supply:.3f}')}% supply)*"
+            )
+            dateline.append(f"Avg price: *{escape_markdown(f'{avg_buy_price:.2f}')}*")
+            dateline.append(
+                f"Unrealized PnL: *{escape_markdown(f'{unrealized_pnl:.3f}')}*"
+            )
             dateline.append(f"Total sold: *{total_sells}*")
-            dateline.append(f"Relized PnL: *{realized_pnl}*")
+            dateline.append(f"Relized PnL: *{escape_markdown(f'{realized_pnl:.3f}')}*")
 
             dateline.append("")  # Empty line after each collection
-            logger.debug(f"Report for {stickerpack_name}: {dateline}")
 
         # Summary section
         dateline.extend(
             [
                 "Summary:",
-                f"Total spent on markets: *{total_spent:.2f}*",
-                f"Unrealized PnL: *{total_unrealized_pnl:.3f}*",
-                f"Realized PnL: *{total_realized_pnl}*",
+                f"Total spent on markets: *{escape_markdown(f'{total_spent:.2f}')}*"
+                f"Unrealized PnL: *{escape_markdown(f'{total_unrealized_pnl:.3f}')}*"
+                f"Realized PnL: *{escape_markdown(f'{total_realized_pnl:.3f}')}*",
             ]
         )
 
