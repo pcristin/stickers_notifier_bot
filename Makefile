@@ -78,6 +78,8 @@ status: ## Show bot status and health information
 	@echo "$(BLUE)[INFO]$(RESET) Bot status:"
 	@$(COMPOSE_CMD) ps
 	@echo ""
+	@echo "Waiting 15s for bot to start..."
+	@$sleep 15
 	@container_id=$$(docker ps -q -f name=$(CONTAINER_NAME)); \
 	if [ -n "$$container_id" ]; then \
 		health=$$(docker inspect --format='{{.State.Health.Status}}' $$container_id 2>/dev/null || echo "unknown"); \
