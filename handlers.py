@@ -449,8 +449,8 @@ class BotHandlers:
         dateline.extend(
             [
                 "Summary:",
-                f"Total spent on markets: *{total_spent:,.2f}*",
-                f"Unrealized PnL: *{total_unrealized_pnl:,.3f}*",
+                f"Total spent on markets: *{total_spent:.2f}*",
+                f"Unrealized PnL: *{total_unrealized_pnl:.3f}*",
                 f"Realized PnL: *{total_realized_pnl}*",
             ]
         )
