@@ -407,7 +407,7 @@ class BotHandlers:
         """Format report data into the required text format"""
 
         # First dateline
-        dateline = [f"*{datetime.now()}*"]
+        dateline = [f"*{datetime.now().strftime('%d.%m.%y %H.%M')}*"]
 
         dateline.append("")  # Empty line after line with report date and time
 
