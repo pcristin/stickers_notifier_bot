@@ -115,7 +115,7 @@ class BotHandlers:
             f"• Removed {removed_count} non-whitelisted users\n"
             f"• Cleaned {notifications_removed} old notifications\n\n"
             f"Only whitelisted users will now be monitored.",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
     async def cmd_wall(self, message: types.Message):
@@ -195,7 +195,7 @@ class BotHandlers:
             )
 
             await loading_msg.edit_text(
-                text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+                text, reply_markup=builder.as_markup(), parse_mode="Markdown"
             )
 
         except Exception as e:
@@ -222,7 +222,7 @@ class BotHandlers:
         # Send processing message
         status_msg = await message.answer(
             "🔄 **Updating floor prices...**\n\nInitializing...",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
         try:
@@ -236,7 +236,7 @@ class BotHandlers:
 
             await status_msg.edit_text(
                 "🔄 **Updating floor prices...**\n\n📊 Fetching current price data...",
-                parse_mode="MarkdownV2",
+                parse_mode="Markdown",
             )
 
             # Get cached price bundles (uses existing cache mechanism)
@@ -249,7 +249,7 @@ class BotHandlers:
 
             await status_msg.edit_text(
                 "🔄 **Updating floor prices...**\n\n📋 Loading worksheets...",
-                parse_mode="MarkdownV2",
+                parse_mode="Markdown",
             )
 
             # Get all worksheets
@@ -266,7 +266,7 @@ class BotHandlers:
                 await status_msg.edit_text(
                     f"🔄 **Updating floor prices...**\n\n"
                     f"📝 Processing worksheet {i+1}/{len(worksheets)}: {worksheet.title}",
-                    parse_mode="MarkdownV2",
+                    parse_mode="Markdown",
                 )
 
                 # Get collection info
@@ -329,7 +329,7 @@ class BotHandlers:
                 if len(results["details"]) > 10:
                     summary_text += f"\n... and {len(results['details']) - 10} more"
 
-            await status_msg.edit_text(summary_text, parse_mode="MarkdownV2")
+            await status_msg.edit_text(summary_text, parse_mode="Markdown")
 
         except Exception as e:
             logger.error(f"Error in update_floor command: {e}")
@@ -355,7 +355,7 @@ class BotHandlers:
         # Send processing message
         status_msg = await message.answer(
             "📊 **Generating report...**\n\nLoading data from Google Sheets...",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
         try:
@@ -375,7 +375,7 @@ class BotHandlers:
 
             await status_msg.edit_text(
                 "📊 **Generating report...**\n\nFormatting report...",
-                parse_mode="MarkdownV2V2",
+                parse_mode="MarkdownV2",
             )
 
             # Generate report
@@ -383,12 +383,12 @@ class BotHandlers:
 
             # Split message if too long (Telegram limit is 4096 characters)
             if len(report_text) <= 4096:
-                await status_msg.edit_text(report_text, parse_mode="MarkdownV2")
+                await status_msg.edit_text(report_text, parse_mode="Markdown")
             else:
                 # Send in parts
                 await status_msg.edit_text(
                     "📊 **Report Generated**\n\nSending report in parts...",
-                    parse_mode="MarkdownV2",
+                    parse_mode="Markdown",
                 )
 
                 # Split into chunks
@@ -407,7 +407,7 @@ class BotHandlers:
         """Format report data into the required text format"""
 
         # First dateline
-        dateline = [f"*_{datetime.now()}_*"]
+        dateline = [f"*{datetime.now()}*"]
 
         dateline.append("")  # Empty line after line with report date and time
 
@@ -635,7 +635,7 @@ class BotHandlers:
         else:
             text = "📦 Your Collections:\n\n"
             for _, collection in collections.items():
-                # Escape MarkdownV2 characters
+                # Escape Markdown characters
                 escaped_collection_name = escape_markdown(collection["collection_name"])
                 escaped_stickerpack_name = escape_markdown(
                     collection["stickerpack_name"]
@@ -658,7 +658,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
         await callback.message.edit_text(
-            text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+            text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
 
     async def manual_price_check(self, callback: types.CallbackQuery):
@@ -741,7 +741,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
 
-        await callback.message.edit_text(text, parse_mode="MarkdownV2")
+        await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
 
     async def start_collection_editing(
@@ -784,7 +784,7 @@ class BotHandlers:
             InlineKeyboardButton(text="⬅️ Back", callback_data="main_collections"),
         )
 
-        # Escape MarkdownV2 characters in collection data
+        # Escape Markdown characters in collection data
         escaped_collection_name = escape_markdown(collection["collection_name"])
         escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
 
@@ -804,7 +804,7 @@ class BotHandlers:
             return "The message is no longer accessible"
 
         await callback.message.edit_text(
-            text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+            text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
         await callback.answer()
 
@@ -831,7 +831,7 @@ class BotHandlers:
             ),
         )
 
-        # Escape MarkdownV2 characters
+        # Escape Markdown characters
         escaped_collection_name = escape_markdown(collection["collection_name"])
         escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
 
@@ -850,7 +850,7 @@ class BotHandlers:
             return "The message is no longer accessible"
 
         await callback.message.edit_text(
-            text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+            text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
         await callback.answer()
 
@@ -912,7 +912,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
 
-        await callback.message.edit_text(text, parse_mode="MarkdownV2")
+        await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
 
     async def start_sell_multiplier_editing(self, callback: types.CallbackQuery):
@@ -947,7 +947,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
 
-        await callback.message.edit_text(text, parse_mode="MarkdownV2")
+        await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
 
     async def handle_text_input(self, message: types.Message):
@@ -1000,7 +1000,7 @@ class BotHandlers:
             user_id, UserState.ADDING_STICKERPACK_NAME
         )
 
-        # Escape MarkdownV2 characters for display
+        # Escape Markdown characters for display
         escaped_text = escape_markdown(text)
 
         await message.answer(
@@ -1009,7 +1009,7 @@ class BotHandlers:
             f"Example: `Golden Hamster`, `Diamond Society`, `Premium Notcoin`\n\n"
             f"💡 This is the specific sticker pack within the collection.\n\n"
             f"Type /cancel to abort this process.",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
     async def process_stickerpack_name_input(self, message: types.Message, text: str):
@@ -1032,7 +1032,7 @@ class BotHandlers:
 
         collection_data = self.bot.state_manager.get_collection_data(user_id)
 
-        # Escape MarkdownV2 characters for display
+        # Escape Markdown characters for display
         escaped_collection_name = escape_markdown(collection_data.collection_name)
         escaped_stickerpack_name = escape_markdown(text)
 
@@ -1043,7 +1043,7 @@ class BotHandlers:
             f"Example: `10`, `25.5`, `100`\n\n"
             f"💡 This is the original mint/launch price used to calculate notification thresholds.\n\n"
             f"Type /cancel to abort this process.",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
     async def process_launch_price_input(self, message: types.Message, text: str):
@@ -1084,7 +1084,7 @@ class BotHandlers:
             ),
         )
 
-        # Escape MarkdownV2 characters in collection data
+        # Escape Markdown characters in collection data
         escaped_collection_name = escape_markdown(collection_data.collection_name)
         escaped_stickerpack_name = escape_markdown(collection_data.stickerpack_name)
 
@@ -1098,7 +1098,7 @@ class BotHandlers:
         )
 
         await message.answer(
-            text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+            text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
 
     async def process_buy_multiplier_input(self, message: types.Message, text: str):
@@ -1131,7 +1131,7 @@ class BotHandlers:
         await message.answer(
             f"✅ Buy alert multiplier updated to **{multiplier}x**\n\n"
             f"You'll now receive notifications when prices drop to **{multiplier}x** the launch price or below.",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
     async def process_sell_multiplier_input(self, message: types.Message, text: str):
@@ -1164,7 +1164,7 @@ class BotHandlers:
         await message.answer(
             f"✅ Sell alert multiplier updated to **{multiplier}x**\n\n"
             f"You'll now receive notifications when prices rise to **{multiplier}x** the launch price or above.",
-            parse_mode="MarkdownV2",
+            parse_mode="Markdown",
         )
 
     async def handle_confirmation(self, callback: types.CallbackQuery):
@@ -1227,7 +1227,7 @@ class BotHandlers:
         # Reset user session
         self.bot.state_manager.reset_user_session(user_id)
 
-        # Escape MarkdownV2 characters
+        # Escape Markdown characters
         escaped_collection_name = escape_markdown(new_collection["collection_name"])
         escaped_stickerpack_name = escape_markdown(new_collection["stickerpack_name"])
 
@@ -1247,7 +1247,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
 
-        await callback.message.edit_text(text, parse_mode="MarkdownV2")
+        await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer("Collection added!")
 
     async def cancel_collection_creation(self, callback: types.CallbackQuery):
@@ -1286,7 +1286,7 @@ class BotHandlers:
             user_id, collection_id
         )
 
-        # Escape MarkdownV2 characters
+        # Escape Markdown characters
         escaped_collection_name = escape_markdown(collection["collection_name"])
         escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
 
@@ -1304,7 +1304,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
 
-        await callback.message.edit_text(text, parse_mode="MarkdownV2")
+        await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer("Collection deleted!")
 
     async def process_wall_ton_amount_input(self, message: types.Message, text: str):
@@ -1388,7 +1388,7 @@ class BotHandlers:
                 await message.answer(
                     f"❌ No sticker pack found: **{escape_markdown(collection_name)}** - **{escape_markdown(stickerpack_name)}**\n\n"
                     f"Please check the collection and sticker pack names.",
-                    parse_mode="MarkdownV2",
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -1419,7 +1419,7 @@ class BotHandlers:
                     f"📑 Sticker Pack: **{escape_markdown(stickerpack_name)}**\n"
                     f"💰 Price Threshold: **{ton_amount} TON**\n\n"
                     f"❌ No sell orders found under **{ton_amount} TON**",
-                    parse_mode="MarkdownV2",
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -1446,7 +1446,7 @@ class BotHandlers:
             if total_wall >= 20:
                 result_text += "💡 *Note: Wall shows 20+ because each marketplace shows max 20 lowest offers*"
 
-            await message.answer(result_text, parse_mode="MarkdownV2")
+            await message.answer(result_text, parse_mode="Markdown")
 
         except Exception as e:
             logger.error(f"Error calculating wall: {e}")
@@ -1547,7 +1547,7 @@ class BotHandlers:
             InlineKeyboardButton(text="❌ Cancel", callback_data="wall_cancel"),
         )
 
-        # Escape MarkdownV2 characters
+        # Escape Markdown characters
         escaped_collection_name = escape_markdown(collection_name)
 
         text = (
@@ -1565,7 +1565,7 @@ class BotHandlers:
             return "The message is no longer accessible"
 
         await callback.message.edit_text(
-            text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+            text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
 
     async def handle_wall_stickerpack_selection(
@@ -1605,7 +1605,7 @@ class BotHandlers:
         # Set state to wait for TON amount input
         self.bot.state_manager.set_user_state(user_id, UserState.WALL_TON_AMOUNT)
 
-        # Escape MarkdownV2 characters
+        # Escape Markdown characters
         escaped_collection_name = escape_markdown(collection_name)
         escaped_stickerpack_name = escape_markdown(stickerpack_name)
 
@@ -1626,7 +1626,7 @@ class BotHandlers:
         ):
             return "The message is no longer accessible"
 
-        await callback.message.edit_text(text, parse_mode="MarkdownV2")
+        await callback.message.edit_text(text, parse_mode="Markdown")
 
     async def handle_wall_cancel(self, callback: types.CallbackQuery):
         """Handle wall analysis cancellation"""
@@ -1689,6 +1689,6 @@ class BotHandlers:
             return "The message is no longer accessible"
 
         await callback.message.edit_text(
-            text, reply_markup=builder.as_markup(), parse_mode="MarkdownV2"
+            text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
         await callback.answer("Back to collections")
