@@ -418,7 +418,6 @@ class BotHandlers:
         for data in report_data:
             collection_name = data["collection_name"]
             stickerpack_name = data["stickerpack_name"]
-            total_buys = data["total_buys"]
             total_sells = data["total_sells"]
             total_left = data["total_left"]
             floor_price = data["floor_price"]
@@ -428,8 +427,7 @@ class BotHandlers:
             realized_pnl = data["realized_pnl"]
 
             # Calculate total spent for this collection
-            collection_spent = total_buys * avg_buy_price
-            total_spent += collection_spent
+            total_spent += data["collection_spent_on_markets"]
             total_unrealized_pnl += unrealized_pnl
             total_realized_pnl += realized_pnl
 
