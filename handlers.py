@@ -377,7 +377,7 @@ class BotHandlers:
 
             await status_msg.edit_text(
                 "📊 **Generating report...**\n\nFormatting report...",
-                parse_mode="MarkdownV2",
+                parse_mode="Markdown",
             )
 
             # Generate report
@@ -385,19 +385,23 @@ class BotHandlers:
 
             # Split message if too long (Telegram limit is 4096 characters)
             if len(report_text) <= 4096:
-                await status_msg.edit_text(report_text, parse_mode="Markdown")
+                await status_msg.edit_text(
+                    report_text, parse_mode=ParseMode.MARKDOWN_V2
+                )
             else:
                 # Send in parts
                 await status_msg.edit_text(
                     "📊 **Report Generated**\n\nSending report in parts...",
-                    parse_mode="Markdown",
+                    parse_mode=ParseMode.MARKDOWN,
                 )
 
                 # Split into chunks
                 chunks = self.split_report(report_text, 4000)  # Leave some margin
                 for i, chunk in enumerate(chunks):
                     if i == 0:
-                        await status_msg.edit_text(chunk, parse_mode="MarkdownV2")
+                        await status_msg.edit_text(
+                            chunk, parse_mode=ParseMode.MARKDOWN_V2
+                        )
                     else:
                         await message.answer(chunk, parse_mode=ParseMode.MARKDOWN_V2)
 

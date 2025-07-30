@@ -45,40 +45,12 @@ def setup_logging():
 
 def escape_markdown(text: str) -> str:
     """Escape special Markdown characters in text, but preserve dots in numbers"""
+    MDV2_SPECIAL = r"_*[]()~`>#+-=|{}.!"
+    MD_RESERVED_RE = re.compile(f"([{re.escape(MDV2_SPECIAL)}])")
     if not text:
         return ""
 
-    # Escape Markdown special characters, but be smarter about dots
-    escape_chars = [
-        "*",
-        "_",
-        "[",
-        "]",
-        "(",
-        ")",
-        "~",
-        "`",
-        ">",
-        "#",
-        "+",
-        "-",
-        "=",
-        "|",
-        "{",
-        "}",
-        "!",
-    ]
-    escaped_text = text
-
-    # Escape most special characters
-    for char in escape_chars:
-        escaped_text = escaped_text.replace(char, f"\\{char}")
-
-    # Handle dots more carefully - only escape if not part of a number
-    # This regex finds dots that are not preceded and followed by digits
-    escaped_text = re.sub(r"(?<!\d)\.(?!\d)", r"\\.", escaped_text)
-
-    return escaped_text
+    return MD_RESERVED_RE.sub(r"\\\1", str(text))
 
 
 def escape_markdown_link_text(text: str) -> str:
