@@ -32,6 +32,7 @@ class ReportDataCells:
     unrealized_pnl = (10, GoogleSheetsCols.F.value)
     collection_name = (1, GoogleSheetsCols.F.value)
     stickerpack_name = (2, GoogleSheetsCols.F.value)
+    realized_pnl = (11, GoogleSheetsCols.F.value)
 
 class SheetsClient:
     def __init__(self, credentials_path: str):
@@ -129,6 +130,11 @@ class SheetsClient:
                 ReportDataCells.unrealized_pnl[0], 
                 ReportDataCells.unrealized_pnl[1]
             ).value
+
+            realized_pnl = worksheet.cell(
+                ReportDataCells.realized_pnl[0],
+                ReportDataCells.realized_pnl[1]
+            )
             
             # Convert string values to appropriate types
             def safe_float(value):
@@ -158,7 +164,8 @@ class SheetsClient:
                 'total_buys': safe_int(total_buys),
                 'percent_supply': safe_float(percent_supply),
                 'avg_buy_price': safe_float(avg_buy_price),
-                'unrealized_pnl': safe_float(unrealized_pnl)
+                'unrealized_pnl': safe_float(unrealized_pnl),
+                'realized_pnl': safe_float(realized_pnl)
             }
             
         except Exception as e:
