@@ -138,24 +138,24 @@ class SheetsClient:
 
             realized_pnl = worksheet.cell(
                 ReportDataCells.realized_pnl[0], ReportDataCells.realized_pnl[1]
-            )
+            ).value
 
             on_sale = worksheet.cell(
                 ReportDataCells.on_sale[0], ReportDataCells.on_sale[1]
-            )
+            ).value
 
             total_sells = worksheet.cell(
                 ReportDataCells.total_sells[0], ReportDataCells.total_sells[1]
-            )
+            ).value
 
             total_left = worksheet.cell(
                 ReportDataCells.total_left[0], ReportDataCells.total_left[1]
-            )
+            ).value
 
             collection_spent_on_markets = worksheet.cell(
                 ReportDataCells.collection_spent_on_markets[0],
                 ReportDataCells.collection_spent_on_markets[1],
-            )
+            ).value
 
             # Convert string values to appropriate types
             def safe_float(value):
