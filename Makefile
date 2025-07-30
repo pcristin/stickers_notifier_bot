@@ -44,8 +44,8 @@ build: ### Build containter with docker-compose
 	@$(COMPOSE_CMD) build
 	@echo "$(GREEN)[SUCCESS]$(RESET) Container build"
 
-.PHONY: start
-start: ## Start the bot container
+.PHONY: up
+up: ## Start the bot container
 	@echo "$(BLUE)[INFO]$(RESET) Starting bot..."
 	@$(COMPOSE_CMD) up -d $(CONTAINER_NAME)
 	@echo "$(GREEN)[SUCCESS]$(RESET) Bot started"
