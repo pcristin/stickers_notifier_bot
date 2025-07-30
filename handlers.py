@@ -441,17 +441,17 @@ class BotHandlers:
             total_realized_pnl += realized_pnl
 
             # Format the collection section
-            dateline.append(f"{collection_name} {stickerpack_name}:")
+            dateline.append(f"{escape_markdown(collection_name)} {escape_markdown(stickerpack_name)}:")
             dateline.append(f"FP: *{escape_markdown(f'{floor_price:.3f}')} TON*")
             dateline.append(
-                f"Own: *{total_left} ({escape_markdown(f'{percent_supply:.3f}')}% supply)*"
+                f"Own: *{total_left} \\({escape_markdown(f'{percent_supply:.3f}')}% supply\\)*"
             )
             dateline.append(f"Avg price: *{escape_markdown(f'{avg_buy_price:.2f}')}*")
             dateline.append(
                 f"Unrealized PnL: *{escape_markdown(f'{unrealized_pnl:.3f}')}*"
             )
             dateline.append(f"Total sold: *{total_sells}*")
-            dateline.append(f"Relized PnL: *{escape_markdown(f'{realized_pnl:.3f}')}*")
+            dateline.append(f"Realized PnL: *{escape_markdown(f'{realized_pnl:.3f}')}*")
 
             dateline.append("")  # Empty line after each collection
 
@@ -459,8 +459,8 @@ class BotHandlers:
         dateline.extend(
             [
                 "Summary:",
-                f"Total spent on markets: *{escape_markdown(f'{total_spent:.2f}')}*"
-                f"Unrealized PnL: *{escape_markdown(f'{total_unrealized_pnl:.3f}')}*"
+                f"Total spent on markets: *{escape_markdown(f'{total_spent:.2f}')}*",
+                f"Unrealized PnL: *{escape_markdown(f'{total_unrealized_pnl:.3f}')}*",
                 f"Realized PnL: *{escape_markdown(f'{total_realized_pnl:.3f}')}*",
             ]
         )
