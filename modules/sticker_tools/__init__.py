@@ -1,0 +1,1 @@
+# Sticker tools integration module
