@@ -20,6 +20,9 @@ async def main():
     handlers = BotHandlers(bot)
     handlers.register_handlers()
     
+    # Set handlers reference for background tasks
+    bot.set_handlers(handlers)
+    
     # Start the bot
     await bot.start_polling()
 
