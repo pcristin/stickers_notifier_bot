@@ -7,6 +7,9 @@ from aiogram.types import (
     InaccessibleMessage,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.enums import ParseMode
@@ -14,6 +17,7 @@ from aiogram.enums import ParseMode
 from auth import require_whitelisted_user
 from user_states import UserState
 from utils import escape_markdown, clean_marketplace_name
+from modules.sticker_tools import StickerToolsClient
 
 from datetime import datetime
 
@@ -23,6 +27,11 @@ logger = logging.getLogger(__name__)
 class BotHandlers:
     def __init__(self, bot_instance):
         self.bot = bot_instance
+        self.sticker_client = None
+        self.collections_cache = None  # Cache for all available collections
+        self.cache_timestamp = None    # When cache was last updated
+        self.images_cache = None       # Cache for sticker images
+        self.images_cache_timestamp = None  # When images cache was last updated
 
     def register_handlers(self):
         """Register all bot handlers"""
@@ -43,6 +52,17 @@ class BotHandlers:
         self.bot.dp.message(Command("report"))(
             require_whitelisted_user(self.cmd_report)
         )
+        self.bot.dp.message(Command("market"))(
+            require_whitelisted_user(self.cmd_market_overview)
+        )
+        self.bot.dp.message(Command("collection"))(
+            require_whitelisted_user(self.cmd_collection_analysis)
+        )
+        self.bot.dp.message(Command("sticker"))(
+            require_whitelisted_user(self.cmd_sticker_details)
+        )
+        self.bot.dp.message(Command("help"))(require_whitelisted_user(self.cmd_help))
+        self.bot.dp.message(Command("info"))(require_whitelisted_user(self.cmd_help))
 
         # Callback query handlers
         self.bot.dp.callback_query(F.data.startswith("main_"))(
@@ -54,16 +74,279 @@ class BotHandlers:
         self.bot.dp.callback_query(F.data.startswith("notification_"))(
             require_whitelisted_user(self.handle_notification_settings)
         )
+        self.bot.dp.callback_query(F.data.startswith("daily_reports_"))(
+            require_whitelisted_user(self.handle_daily_reports_callbacks)
+        )
         self.bot.dp.callback_query(F.data.startswith("confirm_"))(
             require_whitelisted_user(self.handle_confirmation)
         )
         self.bot.dp.callback_query(F.data.startswith("wall_"))(
             require_whitelisted_user(self.handle_wall_callbacks)
         )
+        self.bot.dp.callback_query(F.data.startswith("sticker_"))(
+            require_whitelisted_user(self.handle_sticker_callbacks)
+        )
+        self.bot.dp.callback_query(F.data.startswith("edit_"))(
+            require_whitelisted_user(self.handle_edit_callbacks)
+        )
+        self.bot.dp.callback_query(F.data.startswith("toggle_"))(
+            require_whitelisted_user(self.handle_toggle_callbacks)
+        )
 
         # Text message handlers for user input flows
         self.bot.dp.message(F.text & ~F.text.startswith("/"))(
             require_whitelisted_user(self.handle_text_input)
+        )
+        
+        # Inline query handler
+        self.bot.dp.inline_query()(
+            require_whitelisted_user(self.handle_inline_query)
+        )
+    
+    def initialize_sticker_client(self):
+        """Initialize the sticker tools client with the bot's session"""
+        if self.bot.session:
+            self.sticker_client = StickerToolsClient(self.bot.session)
+            logger.info("Sticker tools client initialized")
+        else:
+            logger.error("Bot session not available for sticker client")
+    
+    def ensure_sticker_client(self):
+        """Ensure sticker client is initialized (lazy initialization)"""
+        if not self.sticker_client and self.bot.session:
+            self.initialize_sticker_client()
+        return self.sticker_client is not None
+    
+    async def get_collections_cache(self, force_refresh: bool = False):
+        """Get cached collections data, refresh if needed"""
+        from datetime import timedelta
+        
+        # Check if cache needs refresh (older than 1 hour or forced)
+        now = datetime.now()
+        if (force_refresh or 
+            self.collections_cache is None or 
+            self.cache_timestamp is None or 
+            now - self.cache_timestamp > timedelta(hours=1)):
+            
+            if not self.ensure_sticker_client():
+                return None
+                
+            logger.info("Refreshing collections cache...")
+            try:
+                self.collections_cache = await self.sticker_client.get_all_collections()
+                self.cache_timestamp = now
+                logger.info(f"Cache refreshed with {len(self.collections_cache or [])} collections")
+            except Exception as e:
+                logger.error(f"Failed to refresh collections cache: {e}")
+                return None
+        
+        return self.collections_cache
+
+    async def get_images_cache(self, force_refresh: bool = False):
+        """Get cached sticker images data, refresh if needed"""
+        now = datetime.now()
+        cache_age_hours = 2  # Cache images for 2 hours
+        
+        # Check if we need to refresh the cache
+        if (force_refresh or 
+            not self.images_cache or 
+            not self.images_cache_timestamp or
+            (now - self.images_cache_timestamp).total_seconds() > cache_age_hours * 3600):
+            
+            logger.info("Refreshing images cache...")
+            try:
+                if self.bot.api_client:
+                    price_bundles = await self.bot.api_client.fetch_price_bundles() or []
+                    
+                    # Create a mapping of collection+sticker name to image URL
+                    images_map = {}
+                    for bundle in price_bundles:
+                        collection_name = bundle.get("collectionName", "").lower()
+                        character_name = bundle.get("characterName", "").lower()
+                        image_url = bundle.get("imageUrl")
+                        
+                        if collection_name and character_name and image_url:
+                            key = f"{collection_name}:{character_name}"
+                            images_map[key] = image_url
+                    
+                    self.images_cache = images_map
+                    self.images_cache_timestamp = now
+                    logger.info(f"Images cache refreshed with {len(images_map)} entries")
+                else:
+                    logger.warning("API client not available for images cache")
+                    self.images_cache = {}
+            except Exception as e:
+                logger.error(f"Failed to refresh images cache: {e}")
+                self.images_cache = {}
+        
+        return self.images_cache or {}
+
+    async def get_all_stickers(self):
+        """Get all individual stickers from all collections for inline queries with images"""
+        try:
+            collections = await self.get_collections_cache()
+            if not collections:
+                return []
+            
+            # Get cached images data
+            images_map = await self.get_images_cache()
+            
+            all_stickers = []
+            images_found = 0
+            for collection in collections:
+                for sticker in collection.stickers:
+                    # Look up image URL from cache
+                    image_key = f"{collection.name.lower()}:{sticker.name.lower()}"
+                    image_url = images_map.get(image_key)
+                    
+                    # If exact match fails, try partial matching
+                    if not image_url:
+                        # Try to find partial matches in case naming differs slightly
+                        collection_lower = collection.name.lower()
+                        sticker_lower = sticker.name.lower()
+                        
+                        for key, url in images_map.items():
+                            key_parts = key.split(":")
+                            if len(key_parts) == 2:
+                                key_collection, key_sticker = key_parts
+                                # Check if names are similar (contains each other)
+                                if (collection_lower in key_collection or key_collection in collection_lower) and \
+                                   (sticker_lower in key_sticker or key_sticker in sticker_lower):
+                                    image_url = url
+                                    break
+                    
+                    if image_url:
+                        images_found += 1
+                    
+                    # Add collection info to sticker for context
+                    sticker_info = {
+                        'sticker': sticker,
+                        'collection_name': collection.name,
+                        'collection_id': collection.id,
+                        'image_url': image_url
+                    }
+                    all_stickers.append(sticker_info)
+            
+            logger.info(f"Found images for {images_found}/{len(all_stickers)} stickers")
+            
+            return all_stickers
+        except Exception as e:
+            logger.error(f"Error getting all stickers: {e}")
+            return []
+
+    async def handle_inline_query(self, inline_query: InlineQuery):
+        """Handle inline queries for sticker search"""
+        if not self.ensure_sticker_client():
+            await inline_query.answer([], cache_time=1)
+            return
+        
+        query = inline_query.query.strip().lower()
+        
+        # Check if query starts with "stickerpack:" or just "sticker:"
+        if query.startswith("stickerpack:"):
+            search_term = query.replace("stickerpack:", "").strip()
+        elif query.startswith("sticker:"):
+            search_term = query.replace("sticker:", "").strip()
+        else:
+            # Show help message if no proper prefix
+            help_result = InlineQueryResultArticle(
+                id="help",
+                title="🎯 Sticker Analysis",
+                description="Type 'stickerpack: name' to search stickers",
+                input_message_content=InputTextMessageContent(
+                    message_text="💡 To search stickers, type:\n`@your_bot_name stickerpack: sticker_name`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            )
+            await inline_query.answer([help_result], cache_time=60)
+            return
+        
+        # Get all stickers
+        all_stickers = await self.get_all_stickers()
+        if not all_stickers:
+            no_data_result = InlineQueryResultArticle(
+                id="no_data",
+                title="❌ No Data Available",
+                description="Sticker data is not available right now",
+                input_message_content=InputTextMessageContent(
+                    message_text="❌ Sticker data is currently unavailable. Please try again later.\n\n"
+                               "💡 Make sure:\n"
+                               "• Bot has inline mode enabled in @BotFather\n"
+                               "• APIs are responding properly\n"
+                               "• You have the latest bot version",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            )
+            await inline_query.answer([no_data_result], cache_time=10)
+            return
+        
+        # Filter stickers based on search term
+        filtered_stickers = []
+        if search_term:
+            # Split search term into words for better matching
+            search_words = search_term.split()
+            
+            for sticker_info in all_stickers:
+                sticker = sticker_info['sticker']
+                collection_name = sticker_info['collection_name']
+                
+                # Search in sticker name and collection name
+                sticker_text = f"{sticker.name} {collection_name}".lower()
+                
+                # Check if all search words are present (more flexible matching)
+                if all(word in sticker_text for word in search_words):
+                    filtered_stickers.append(sticker_info)
+                elif any(word in sticker.name.lower() for word in search_words):
+                    # Prioritize matches in sticker name
+                    filtered_stickers.insert(0, sticker_info)
+        else:
+            # Show top stickers by volume if no search term
+            sorted_stickers = sorted(all_stickers, 
+                                   key=lambda x: x['sticker'].vol_24h_ton, 
+                                   reverse=True)
+            filtered_stickers = sorted_stickers[:50]
+        
+        # Convert to inline results (limit to 50 for performance)
+        results = []
+        for i, sticker_info in enumerate(filtered_stickers[:50]):
+            sticker = sticker_info['sticker']
+            collection_name = sticker_info['collection_name']
+            image_url = sticker_info.get('image_url')
+            
+            # Format sticker details for display
+            trend_emoji = sticker.price_trend.value
+            floor_price = f"{sticker.floor_price_ton:.1f}"
+            volume_24h = f"{sticker.vol_24h_ton:.1f}"
+            
+            # Create the message content
+            sticker_details = self.sticker_client.generate_sticker_details(sticker)
+            
+            # Create inline result with thumbnail if image URL is available
+            result_kwargs = {
+                "id": f"sticker_{sticker_info['collection_id']}_{sticker.id}",
+                "title": f"{trend_emoji} {sticker.name}",
+                "description": f"{collection_name} | Floor: {floor_price} TON | Vol: {volume_24h} TON",
+                "input_message_content": InputTextMessageContent(
+                    message_text=sticker_details,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
+            }
+            
+            # Add thumbnail if image URL is available and valid
+            if image_url and image_url.startswith(("http://", "https://")):
+                result_kwargs["thumbnail_url"] = image_url
+                # Also set thumbnail dimensions for better display
+                result_kwargs["thumbnail_width"] = 100
+                result_kwargs["thumbnail_height"] = 100
+            
+            result = InlineQueryResultArticle(**result_kwargs)
+            results.append(result)
+        
+        # Answer the inline query
+        await inline_query.answer(
+            results, 
+            cache_time=60,  # Cache for 1 minute
+            is_personal=True  # Results are personalized
         )
 
     async def cmd_start(self, message: types.Message):
@@ -76,14 +359,106 @@ class BotHandlers:
 
         # Initialize user settings if not exists
         self.bot.ensure_user_settings(user_id_str)
+        
+        # Get current time for welcome
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         welcome_text = (
-            "🔔 Welcome to Sticker Price Notifier Bot!\n\n"
-            "I'll help you track Telegram sticker pack prices and notify you when they reach your target levels.\n\n"
-            "Use /settings to configure your collections and notification preferences."
+            f"🕐 *{escape_markdown(current_time)}*\n\n"
+            "🚀 *Welcome to Advanced Sticker Market Bot\\!*\n\n"
+            "📊 **Your Complete Telegram Stickers Trading Assistant**\n\n"
+            
+            "🔥 **Core Features:**\n"
+            "• 💰 *Price Monitoring* \\- Track your collections 24/7\n"
+            "• 🔔 *Smart Alerts* \\- Custom buy/sell notifications per collection\n"
+            "• 📈 *Market Analysis* \\- Real\\-time trends, volume, floor prices\n"
+            "• 🖼️ *Inline Search* \\- Type `@bot_name stickerpack: name` anywhere\n"
+            "• 📰 *Daily Reports* \\- Automated market summaries\n"
+            "• 📊 *Google Sheets* \\- Import floor prices from your sheets\n\n"
+            
+            "⚡ **Quick Start:**\n"
+            "• `/settings` \\- Configure collections & notifications\n"
+            "• `/market` \\- View your collections market status\n"
+            "• `/collection` \\- Analyze any collection with trends\n"
+            "• `/sticker` \\- Deep dive into individual stickers\n"
+            "• `/help` \\- Full command reference\n\n"
+            
+            "🎯 **Pro Features:**\n"
+            "• Per\\-collection notification controls\n"
+            "• Smart trend analysis \\(📈📉➡️\\)\n"
+            "• Volume change tracking vs 7d average\n"
+            "• High\\-activity detection algorithms\n"
+            "• Real\\-time floor price monitoring\n\n"
+            
+            "💡 *Start by adding your first collection in /settings\\!*"
         )
 
-        await message.answer(welcome_text)
+        await message.answer(welcome_text, parse_mode=ParseMode.MARKDOWN_V2)
+
+    async def cmd_help(self, message: types.Message):
+        """Handle /help and /info commands"""
+        if message.from_user == None:
+            await message.answer("❌ Unexpected error occurred!")
+            return
+            
+        # Get current time for help
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        help_text = (
+            f"🕐 *{escape_markdown(current_time)}*\n\n"
+            "📚 *Complete Command Reference*\n\n"
+            
+            "🔧 **Setup & Configuration:**\n"
+            "• `/start` \\- Welcome message & feature overview\n"
+            "• `/settings` \\- Main configuration menu\n"
+            "• `/cancel` \\- Cancel any active operation\n\n"
+            
+            "📊 **Market Analysis:**\n"
+            "• `/market` \\- Your collections market overview\n"
+            "• `/collection` \\- Analyze any collection \\(interactive\\)\n"
+            "• `/sticker` \\- Deep sticker analysis \\(interactive\\)\n\n"
+            
+            "🔍 **Inline Search \\(Use Anywhere\\):**\n"
+            "• `@bot_name stickerpack: wilson` \\- Search specific sticker\n"
+            "• `@bot_name stickerpack: azuki` \\- Find collection stickers\n"
+            "• `@bot_name stickerpack: ` \\- Browse top stickers\n\n"
+            
+            "📈 **Data Management:**\n"
+            "• `/update_floor` \\- Import floor prices from Google Sheets\n"
+            "• `/report` \\- Generate detailed trading report\n"
+            "• `/wall` \\- Check account wall/balance\n\n"
+            
+            "⚙️ **Settings Categories:**\n"
+            "• 📦 *Collection Settings* \\- Add/edit your collections\n"
+            "• 🔔 *Notification Settings* \\- Default alert multipliers\n"
+            "• 📰 *Daily Reports* \\- Auto report preferences\n"
+            "• 📊 *My Collections* \\- View configured collections\n\n"
+            
+            "🎯 **Per\\-Collection Features:**\n"
+            "• Individual buy/sell multipliers\n"
+            "• Enable/disable notifications per collection\n"
+            "• Launch price tracking\n"
+            "• Performance vs launch price\n\n"
+            
+            "📊 **Market Insights:**\n"
+            "• Real\\-time floor price tracking\n"
+            "• 24h volume change analysis\n"
+            "• Median price trends \\(vs 7d\\)\n"
+            "• Activity level detection\n"
+            "• Smart trend indicators \\(📈📉➡️\\)\n\n"
+            
+            "💡 **Pro Tips:**\n"
+            "• Set different multipliers per collection\n"
+            "• Use inline search for quick analysis\n"
+            "• Configure daily reports for your timezone\n"
+            "• Monitor high\\-volume stickers for opportunities\n\n"
+            
+            "🆘 **Need Help?** All commands have interactive menus\\!"
+        )
+
+        await message.answer(help_text, parse_mode=ParseMode.MARKDOWN_V2)
 
     async def cmd_cancel(self, message: types.Message):
         """Handle /cancel command to exit any active flow"""
@@ -208,67 +583,81 @@ class BotHandlers:
 
     async def cmd_update_floor(self, message: types.Message):
         """Update floor prices in Google Sheets from scanner API"""
+        # Send processing message for command
+        status_msg = await message.answer(
+            "🔄 **Updating floor prices...**\n\nInitializing...",
+            parse_mode="Markdown",
+        )
+        
+        # Call the main update method
+        result = await self.update_floor_prices_internal()
+        
+        # Update the status message with result
+        await status_msg.edit_text(result["message"], parse_mode="Markdown")
+
+    async def update_floor_prices_internal(self) -> dict:
+        """Internal method to update floor prices, returns result dict"""
         from modules.google_sheets.sheets_client import SheetsClient
         from config import GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_PATH
 
         # Validate prerequisites
         if not GOOGLE_SHEETS_KEY:
-            await message.answer("❌ Google Sheets key not configured in environment")
-            return
+            return {
+                "success": False,
+                "message": "❌ Google Sheets key not configured in environment",
+                "updated": 0,
+                "skipped": 0,
+                "errors": 0
+            }
 
         if not self.bot.api_client:
-            await message.answer("❌ API client not available")
-            return
-
-        # Send processing message
-        status_msg = await message.answer(
-            "🔄 **Updating floor prices...**\n\nInitializing...",
-            parse_mode="Markdown",
-        )
+            return {
+                "success": False,
+                "message": "❌ API client not available",
+                "updated": 0,
+                "skipped": 0,
+                "errors": 0
+            }
 
         try:
             # Initialize sheets client
             sheets_client = SheetsClient(GOOGLE_CREDENTIALS_PATH)
             if not sheets_client.authenticate():
-                await status_msg.edit_text(
-                    "❌ Failed to authenticate with Google Sheets"
-                )
-                return
-
-            await status_msg.edit_text(
-                "🔄 **Updating floor prices...**\n\n📊 Fetching current price data...",
-                parse_mode="Markdown",
-            )
+                return {
+                    "success": False,
+                    "message": "❌ Failed to authenticate with Google Sheets",
+                    "updated": 0,
+                    "skipped": 0,
+                    "errors": 0
+                }
 
             # Get cached price bundles (uses existing cache mechanism)
             bundle_data = await self.bot.api_client.fetch_price_bundles()
             if not bundle_data:
-                await status_msg.edit_text(
-                    "❌ Failed to fetch price data from scanner API"
-                )
-                return
-
-            await status_msg.edit_text(
-                "🔄 **Updating floor prices...**\n\n📋 Loading worksheets...",
-                parse_mode="Markdown",
-            )
+                return {
+                    "success": False,
+                    "message": "❌ Failed to fetch price data from scanner API",
+                    "updated": 0,
+                    "skipped": 0,
+                    "errors": 0
+                }
 
             # Get all worksheets
             worksheets = sheets_client.get_all_worksheets(GOOGLE_SHEETS_KEY)
             if not worksheets:
-                await status_msg.edit_text("❌ No worksheets found in Google Sheets")
-                return
+                return {
+                    "success": False,
+                    "message": "❌ No worksheets found in Google Sheets",
+                    "updated": 0,
+                    "skipped": 0,
+                    "errors": 0
+                }
 
             # Track results
             results = {"updated": 0, "skipped": 0, "errors": 0, "details": []}
 
             # Process each worksheet
             for i, worksheet in enumerate(worksheets):
-                await status_msg.edit_text(
-                    f"🔄 **Updating floor prices...**\n\n"
-                    f"📝 Processing worksheet {i+1}/{len(worksheets)}: {worksheet.title}",
-                    parse_mode="Markdown",
-                )
 
                 # Get collection info
                 collection_name, stickerpack_name = sheets_client.get_collection_info(
@@ -314,7 +703,11 @@ class BotHandlers:
                     results["details"].append(f"❌ {worksheet.title}: Failed to update")
 
             # Format final summary
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
             summary_text = (
+                f"🕐 **{current_time}**\n\n"
                 f"📊 **Floor Price Update Complete**\n\n"
                 f"✅ **Updated:** {results['updated']} worksheets\n"
                 f"⚠️ **Skipped:** {results['skipped']} worksheets\n"
@@ -330,11 +723,24 @@ class BotHandlers:
                 if len(results["details"]) > 10:
                     summary_text += f"\n... and {len(results['details']) - 10} more"
 
-            await status_msg.edit_text(summary_text, parse_mode="Markdown")
+            return {
+                "success": True,
+                "message": summary_text,
+                "updated": results["updated"],
+                "skipped": results["skipped"],
+                "errors": results["errors"],
+                "details": results["details"]
+            }
 
         except Exception as e:
-            logger.error(f"Error in update_floor command: {e}")
-            await status_msg.edit_text(f"❌ Unexpected error: {str(e)}")
+            logger.error(f"Error in update_floor_prices_internal: {e}")
+            return {
+                "success": False,
+                "message": f"❌ Unexpected error: {str(e)}",
+                "updated": 0,
+                "skipped": 0,
+                "errors": 0
+            }
 
     async def cmd_report(self, message: types.Message):
         """Generate text report based on Google Sheets data"""
@@ -407,6 +813,270 @@ class BotHandlers:
         except Exception as e:
             logger.error(f"Error in report command: {e}")
             await status_msg.edit_text(f"❌ Unexpected error: {str(e)}")
+
+    async def cmd_market_overview(self, message: types.Message):
+        """Show market overview for user's configured collections"""
+        if not self.ensure_sticker_client():
+            await message.reply("❌ Sticker analysis not available - session not ready")
+            return
+        
+        if message.from_user is None:
+            await message.reply("❌ User information not available")
+            return
+            
+        user_id = str(message.from_user.id)
+        user_collections = self.bot.user_settings.get(user_id, {}).get("collections", {})
+        
+        if not user_collections:
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            await message.reply(
+                f"🕐 **{current_time}**\n\n"
+                "📊 **Market Overview**\n\n"
+                "❌ No collections configured for monitoring.\n\n"
+                "Use /settings → Collection Settings to add collections first.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+            
+        try:
+            loading_msg = await message.reply("📊 Fetching market data for your collections...")
+            
+            # Get collections cache
+            all_collections = await self.get_collections_cache()
+            if not all_collections:
+                await loading_msg.edit_text("❌ Failed to fetch market data")
+                return
+            
+            # Find user's collections in the market data
+            user_market_data = []
+            for collection_config in user_collections.values():
+                collection_name = collection_config["collection_name"]
+                stickerpack_name = collection_config["stickerpack_name"]
+                
+                # Find matching collection
+                for market_collection in all_collections:
+                    if market_collection.name.lower() == collection_name.lower():
+                        # Find specific sticker pack within collection
+                        matching_sticker = None
+                        for sticker in market_collection.stickers:
+                            if sticker.name.lower() == stickerpack_name.lower():
+                                matching_sticker = sticker
+                                break
+                        
+                        if matching_sticker:
+                            user_market_data.append({
+                                'collection': market_collection,
+                                'sticker': matching_sticker,
+                                'config': collection_config
+                            })
+                        break
+            
+            if not user_market_data:
+                await loading_msg.edit_text(
+                    "📊 **Market Overview**\n\n"
+                    "❌ None of your configured collections found in current market data.\n\n"
+                    "Your collections might not be actively traded or names might not match exactly.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Get current time for the report
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Generate analytical overview for user's collections
+            overview_text = f"🕐 *{escape_markdown(current_time)}*\n\n📊 *Your Collections Market Analysis*\n\n"
+            
+            for i, data in enumerate(user_market_data, 1):
+                sticker = data['sticker']
+                config = data['config']
+                
+                # Calculate performance vs launch price
+                launch_price = config['launch_price']
+                current_price = sticker.floor_price_ton
+                price_change_vs_launch = ((current_price / launch_price) - 1) * 100 if launch_price > 0 else 0
+                
+                # Get analytical data
+                vol_change = sticker.vol_change_pct
+                floor_change_24h = sticker.floor_change_pct
+                median_change = sticker.median_change_pct
+                trend = sticker.price_trend
+                is_high_volume = sticker.is_high_volume
+                
+                # Escape and format name with bold
+                escaped_name = escape_markdown(sticker.name)
+                
+                # Format numbers with bold and proper escaping
+                floor_price_bold = f"*{escape_markdown(f'{current_price:.1f}')}*"
+                launch_vs_bold = f"*{escape_markdown(f'{price_change_vs_launch:+.1f}')}" + "%*"
+                vol_24h_bold = f"*{escape_markdown(f'{sticker.vol_24h_ton:.1f}')}*"
+                median_price_bold = f"*{escape_markdown(f'{sticker.median_price_24h_ton:.1f}')}*"
+                
+                overview_text += f"{escape_markdown(str(i))}\\. *{escaped_name}* {trend.value}\n"
+                overview_text += f"   💰 Floor: {floor_price_bold} TON \\({launch_vs_bold} vs launch\\)\n"
+                
+                # Add median price and its change
+                if median_change is not None:
+                    median_change_formatted = f"*{escape_markdown(f'{median_change:+.1f}')}*%"
+                    overview_text += f"   📊 Median: {median_price_bold} TON \\({median_change_formatted} vs 7d\\)\n"
+                else:
+                    overview_text += f"   📊 Median: {median_price_bold} TON\n"
+                
+                # Add volume analysis
+                if vol_change is not None:
+                    vol_change_formatted = f"*{escape_markdown(f'{vol_change:+.1f}')}*%"
+                    vol_trend_emoji = "🚀" if vol_change > 50 else "📈" if vol_change > 0 else "📉"
+                    overview_text += f"   {vol_trend_emoji} Volume: {vol_24h_bold} TON \\({vol_change_formatted} vs avg\\)\n"
+                else:
+                    overview_text += f"   📈 Volume: {vol_24h_bold} TON\n"
+                
+                # Add 24h floor change if significant
+                if abs(floor_change_24h) > 1:  # Only show if > 1% change
+                    floor_change_formatted = f"*{escape_markdown(f'{floor_change_24h:+.1f}')}*%"
+                    floor_emoji = "📈" if floor_change_24h > 0 else "📉"
+                    overview_text += f"   {floor_emoji} Floor 24h: {floor_change_formatted}\n"
+                
+                # Add activity indicator
+                activity_emoji = "🔥" if is_high_volume else "😴"
+                activity_text = "High activity" if is_high_volume else "Low activity"
+                overview_text += f"   {activity_emoji} {escape_markdown(activity_text)}\n\n"
+            
+            await loading_msg.edit_text(overview_text, parse_mode=ParseMode.MARKDOWN_V2)
+            
+        except Exception as e:
+            logger.error(f"Error in market overview: {e}")
+            await message.reply("❌ Failed to fetch market data")
+    
+    async def cmd_collection_analysis(self, message: types.Message):
+        """Show collection selection menu"""
+        if not self.ensure_sticker_client():
+            await message.reply("❌ Sticker analysis not available - session not ready")
+            return
+        
+        try:
+            loading_msg = await message.reply("📊 Loading collections...")
+            
+            # Get collections cache
+            collections = await self.get_collections_cache()
+            if not collections:
+                await loading_msg.edit_text("❌ Failed to fetch collections data")
+                return
+            
+            # Sort collections by name
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            
+            if not sorted_collections:
+                await loading_msg.edit_text("❌ No collections available")
+                return
+            
+            # Create inline keyboard with collections (20 per page)
+            builder = InlineKeyboardBuilder()
+            
+            for i, collection in enumerate(sorted_collections[:20]):  # Limit to 20
+                builder.row(
+                    InlineKeyboardButton(
+                        text=f"📦 {collection.name}",
+                        callback_data=f"sticker_select_collection_{i}"
+                    )
+                )
+            
+            # Add pagination if needed
+            if len(sorted_collections) > 20:
+                builder.row(
+                    InlineKeyboardButton(
+                        text="➡️ Next Page", 
+                        callback_data="sticker_collection_page_1"
+                    )
+                )
+            
+            builder.row(
+                InlineKeyboardButton(
+                    text="❌ Cancel", 
+                    callback_data="sticker_cancel"
+                )
+            )
+            
+            text = (
+                "📊 *Collection Analysis*\n\n"
+                f"Found *{escape_markdown(str(len(sorted_collections)))}* collections\\.\n\n"
+                "📦 *Select a collection to analyze:*"
+            )
+            
+            await loading_msg.edit_text(
+                text, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in collection analysis: {e}")
+            await message.reply("❌ Failed to load collections")
+    
+    async def cmd_sticker_details(self, message: types.Message):
+        """Show collection selection menu for sticker analysis"""
+        if not self.ensure_sticker_client():
+            await message.reply("❌ Sticker analysis not available - session not ready")
+            return
+        
+        try:
+            loading_msg = await message.reply("🎯 Loading collections...")
+            
+            # Get collections cache
+            collections = await self.get_collections_cache()
+            if not collections:
+                await loading_msg.edit_text("❌ Failed to fetch collections data")
+                return
+            
+            # Sort collections by name
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            
+            if not sorted_collections:
+                await loading_msg.edit_text("❌ No collections available")
+                return
+            
+            # Create inline keyboard with collections (20 per page)
+            builder = InlineKeyboardBuilder()
+            
+            for i, collection in enumerate(sorted_collections[:20]):  # Limit to 20
+                builder.row(
+                    InlineKeyboardButton(
+                        text=f"📦 {collection.name}",
+                        callback_data=f"sticker_select_for_details_{i}"
+                    )
+                )
+            
+            # Add pagination if needed
+            if len(sorted_collections) > 20:
+                builder.row(
+                    InlineKeyboardButton(
+                        text="➡️ Next Page", 
+                        callback_data="sticker_details_page_1"
+                    )
+                )
+            
+            builder.row(
+                InlineKeyboardButton(
+                    text="❌ Cancel", 
+                    callback_data="sticker_cancel"
+                )
+            )
+            
+            text = (
+                "🎯 *Sticker Analysis*\n\n"
+                f"Found *{escape_markdown(str(len(sorted_collections)))}* collections\\.\n\n"
+                "📦 *Select a collection to see its stickers:*"
+            )
+            
+            await loading_msg.edit_text(
+                text, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in sticker analysis: {e}")
+            await message.reply("❌ Failed to load collections")
 
     def format_report(self, report_data: list) -> str:
         """Format report data into the required text format"""
@@ -502,11 +1172,17 @@ class BotHandlers:
         keyboard = self.get_main_settings_keyboard()
 
         text = (
-            "⚙️ Settings Menu\n\n"
-            "Configure your collections and notification preferences:"
+            "⚙️ **Advanced Settings Menu**\n\n"
+            "🚀 **Configure Your Trading Dashboard:**\n\n"
+            "📦 **Collection Settings** \\- Add, edit, and manage monitored collections\n"
+            "🔔 **Notification Settings** \\- Set default buy/sell alert multipliers\n"
+            "📰 **Daily Reports** \\- Configure automated market summaries\n"
+            "📊 **My Collections** \\- View all configured collections & status\n"
+            "🔄 **Check Prices Now** \\- Manual price check for your collections\n\n"
+            "💡 *Each collection has individual notification controls\\!*"
         )
 
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN_V2)
 
     def get_main_settings_keyboard(self) -> InlineKeyboardMarkup:
         """Create main settings keyboard"""
@@ -522,8 +1198,13 @@ class BotHandlers:
         )
         builder.row(
             InlineKeyboardButton(
+                text="📰 Daily Reports", callback_data="main_daily_reports"
+            ),
+            InlineKeyboardButton(
                 text="📊 My Collections", callback_data="main_view_collections"
             ),
+        )
+        builder.row(
             InlineKeyboardButton(
                 text="🔄 Check Prices Now", callback_data="main_check_prices"
             ),
@@ -541,6 +1222,8 @@ class BotHandlers:
             await self.show_collection_settings(callback)
         elif action == "notifications":
             await self.show_notification_settings(callback)
+        elif action == "daily_reports":
+            await self.show_daily_reports_settings(callback)
         elif action == "view_collections":
             await self.show_user_collections(callback)
         elif action == "check_prices":
@@ -549,8 +1232,14 @@ class BotHandlers:
             # Show main menu again
             keyboard = self.get_main_settings_keyboard()
             text = (
-                "⚙️ Settings Menu\n\n"
-                "Configure your collections and notification preferences:"
+                "⚙️ **Advanced Settings Menu**\n\n"
+                "🚀 **Configure Your Trading Dashboard:**\n\n"
+                "📦 **Collection Settings** \\- Add, edit, and manage monitored collections\n"
+                "🔔 **Notification Settings** \\- Set default buy/sell alert multipliers\n"
+                "📰 **Daily Reports** \\- Configure automated market summaries\n"
+                "📊 **My Collections** \\- View all configured collections & status\n"
+                "🔄 **Check Prices Now** \\- Manual price check for your collections\n\n"
+                "💡 *Each collection has individual notification controls\\!*"
             )
 
             # Check if callback.message does not exist or is inaccessible
@@ -559,7 +1248,7 @@ class BotHandlers:
                 or callback.message == None
             ):
                 return "The message is no longer accessible"
-            await callback.message.edit_text(text, reply_markup=keyboard)
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN_V2)
 
     async def show_collection_settings(self, callback: types.CallbackQuery):
         """Show collection configuration options"""
@@ -624,12 +1313,76 @@ class BotHandlers:
         )
 
         text = (
-            "🔔 Notification Settings\n\n"
-            f"📈 Buy Alert: {settings['buy_multiplier']}x launch price\n"
-            f"📉 Sell Alert: {settings['sell_multiplier']}x launch price\n\n"
-            "Tap to modify these multipliers:"
+            "🔔 **Default Notification Settings**\n\n"
+            f"📈 **Default Buy Alert:** {settings['buy_multiplier']}x launch price\n"
+            f"📉 **Default Sell Alert:** {settings['sell_multiplier']}x launch price\n\n"
+            f"ℹ️ **Note:** These are default settings for new collections.\n"
+            f"Each collection now has individual notification settings.\n\n"
+            f"💡 **To configure notifications for existing collections:**\n"
+            f"Go to Collection Settings → Select Collection → Notification Settings\n\n"
+            f"**Modify default settings for new collections:**"
         )
 
+        if (
+            isinstance(callback.message, InaccessibleMessage)
+            or callback.message == None
+        ):
+            return "The message is no longer accessible"
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+
+    async def show_daily_reports_settings(self, callback: types.CallbackQuery):
+        """Show daily reports configuration"""
+        user_id = str(callback.from_user.id)
+        
+        # Ensure user settings exist and have daily reports
+        self.bot.ensure_user_settings(user_id)
+        daily_reports = self.bot.user_settings[user_id]["daily_reports"]
+        
+        enabled = daily_reports.get("enabled", True)
+        time_preference = daily_reports.get("time_preference", "morning")
+        
+        builder = InlineKeyboardBuilder()
+        
+        # Enable/disable toggle
+        status_text = "✅ Enabled" if enabled else "❌ Disabled"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"🔔 Status: {status_text}",
+                callback_data="daily_reports_toggle_enabled"
+            )
+        )
+        
+        # Time preference
+        time_emojis = {
+            "morning": "🌅",
+            "afternoon": "☀️", 
+            "evening": "🌆"
+        }
+        current_emoji = time_emojis.get(time_preference, "🌅")
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{current_emoji} Time: {time_preference.title()}",
+                callback_data="daily_reports_time_preference"
+            )
+        )
+        
+        builder.row(
+            InlineKeyboardButton(text="⬅️ Back to Main", callback_data="main_back")
+        )
+        
+        text = (
+            "📰 **Daily Reports Settings**\n\n"
+            f"📊 **Auto Market Reports:** {status_text}\n"
+            f"{current_emoji} **Preferred Time:** {time_preference.title()}\n\n"
+            f"ℹ️ **About Daily Reports:**\n"
+            f"• Automatically send market overview at chosen time\n"
+            f"• Choose your preferred time of day for reports\n"
+            f"• Reports include all your configured collections\n"
+            f"• Reports show current time and market analysis\n\n"
+            f"💡 **Manual Reports:** You can always use /market anytime\n\n"
+            f"**Configure your daily report preferences:**"
+        )
+        
         if (
             isinstance(callback.message, InaccessibleMessage)
             or callback.message == None
@@ -652,11 +1405,26 @@ class BotHandlers:
                 escaped_stickerpack_name = escape_markdown(
                     collection["stickerpack_name"]
                 )
+                
+                # Get notification settings with backward compatibility
+                notification_settings = collection.get("notification_settings", {})
+                if not notification_settings:
+                    from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
+                    notification_settings = {
+                        "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                        "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                        "enabled": True
+                    }
+                
+                enabled_status = "✅" if notification_settings.get("enabled", True) else "❌"
+                buy_multiplier = notification_settings.get("buy_multiplier", 2.0)
+                sell_multiplier = notification_settings.get("sell_multiplier", 3.0)
 
                 text += (
                     f"🏷️ **{escaped_collection_name}**\n"
                     f"📑 Sticker Pack: {escaped_stickerpack_name}\n"
                     f"💰 Launch Price: {collection['launch_price']} TON\n"
+                    f"🔔 Notifications: {enabled_status} (📈{buy_multiplier}x | 📉{sell_multiplier}x)\n"
                     f"🕒 Added: {collection.get('added_date', 'Unknown')}\n\n"
                 )
 
@@ -768,6 +1536,19 @@ class BotHandlers:
             return
 
         collection = collections[collection_id]
+        
+        # Ensure backward compatibility - add notification settings if missing
+        if "notification_settings" not in collection:
+            from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
+            collection["notification_settings"] = {
+                "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                "enabled": True
+            }
+            self.bot.save_user_settings()
+
+        notification_settings = collection["notification_settings"]
+        enabled_status = "✅ Enabled" if notification_settings.get("enabled", True) else "❌ Disabled"
 
         builder = InlineKeyboardBuilder()
         builder.row(
@@ -788,6 +1569,33 @@ class BotHandlers:
                 callback_data=f"edit_field_launch_price_{collection_id}",
             )
         )
+        
+        # Notification settings section
+        builder.row(
+            InlineKeyboardButton(
+                text="🔔 Notification Settings",
+                callback_data=f"edit_notifications_{collection_id}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📈 Buy Alert: {notification_settings['buy_multiplier']}x",
+                callback_data=f"edit_buy_multiplier_{collection_id}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📉 Sell Alert: {notification_settings['sell_multiplier']}x",
+                callback_data=f"edit_sell_multiplier_{collection_id}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"🔔 Status: {enabled_status}",
+                callback_data=f"toggle_notifications_{collection_id}",
+            )
+        )
+        
         builder.row(
             InlineKeyboardButton(
                 text="🗑️ Delete Collection",
@@ -805,6 +1613,9 @@ class BotHandlers:
             f"🏷️ **Collection:** {escaped_collection_name}\n"
             f"📑 **Sticker Pack:** {escaped_stickerpack_name}\n"
             f"💰 **Launch Price:** {collection['launch_price']} TON\n\n"
+            f"🔔 **Notifications:** {enabled_status}\n"
+            f"📈 **Buy Alert:** {notification_settings['buy_multiplier']}x launch price\n"
+            f"📉 **Sell Alert:** {notification_settings['sell_multiplier']}x launch price\n\n"
             f"Select what you want to edit:"
         )
 
@@ -962,6 +1773,56 @@ class BotHandlers:
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
 
+    async def handle_daily_reports_callbacks(self, callback: types.CallbackQuery):
+        """Handle daily reports settings callbacks"""
+        if callback.data is None:
+            logger.error("Callback data is None!")
+            return
+        
+        action_parts = callback.data.split("_")
+        if len(action_parts) < 3:
+            await callback.answer("Invalid daily reports action", show_alert=True)
+            return
+        
+        action = "_".join(action_parts[2:])  # daily_reports_toggle_enabled -> toggle_enabled
+        user_id = str(callback.from_user.id)
+        
+        # Ensure user settings exist
+        self.bot.ensure_user_settings(user_id)
+        daily_reports = self.bot.user_settings[user_id]["daily_reports"]
+        
+        if action == "toggle_enabled":
+            # Toggle enabled status
+            current_status = daily_reports.get("enabled", True)
+            daily_reports["enabled"] = not current_status
+            self.bot.save_user_settings()
+            
+            new_status = "enabled" if not current_status else "disabled"
+            await callback.answer(f"✅ Daily reports {new_status}!")
+            
+            # Refresh the settings view
+            await self.show_daily_reports_settings(callback)
+            
+        elif action == "time_preference":
+            # Cycle through time preferences
+            current_time = daily_reports.get("time_preference", "morning")
+            time_options = ["morning", "afternoon", "evening"]
+            current_index = time_options.index(current_time) if current_time in time_options else 0
+            next_index = (current_index + 1) % len(time_options)
+            new_time = time_options[next_index]
+            
+            daily_reports["time_preference"] = new_time
+            self.bot.save_user_settings()
+            
+            time_emojis = {"morning": "🌅", "afternoon": "☀️", "evening": "🌆"}
+            emoji = time_emojis.get(new_time, "🌅")
+            await callback.answer(f"{emoji} Time preference: {new_time.title()}")
+            
+            # Refresh the settings view
+            await self.show_daily_reports_settings(callback)
+        else:
+            await callback.answer("Unknown daily reports action", show_alert=True)
+
     async def handle_text_input(self, message: types.Message):
         """Handle text input from users during flows"""
         if message.from_user == None:
@@ -1114,11 +1975,12 @@ class BotHandlers:
         )
 
     async def process_buy_multiplier_input(self, message: types.Message, text: str):
-        """Process buy multiplier input"""
+        """Process buy multiplier input for specific collection"""
         if message.from_user == None:
             await message.answer("❌ Unexpected error occured! ")
             return
         user_id = message.from_user.id
+        user_id_str = str(user_id)
 
         try:
             multiplier = float(text)
@@ -1132,26 +1994,55 @@ class BotHandlers:
             )
             return
 
-        # Update user settings
-        user_id_str = str(user_id)
-        self.bot.user_settings[user_id_str]["notification_settings"][
-            "buy_multiplier"
-        ] = multiplier
+        # Get collection ID from session
+        collection_data = self.bot.state_manager.get_collection_data(user_id)
+        collection_id = getattr(collection_data, 'editing_collection_id', None)
+        
+        if not collection_id:
+            await message.answer("❌ Collection ID not found. Please try again.")
+            self.bot.state_manager.reset_user_session(user_id)
+            return
+        
+        # Update collection-specific notification settings
+        collections = self.bot.user_settings.get(user_id_str, {}).get("collections", {})
+        if collection_id not in collections:
+            await message.answer("❌ Collection not found. Please try again.")
+            self.bot.state_manager.reset_user_session(user_id)
+            return
+        
+        collection = collections[collection_id]
+        if "notification_settings" not in collection:
+            from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
+            collection["notification_settings"] = {
+                "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                "enabled": True
+            }
+        
+        collection["notification_settings"]["buy_multiplier"] = multiplier
         self.bot.save_user_settings()
         self.bot.state_manager.reset_user_session(user_id)
 
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
+
         await message.answer(
-            f"✅ Buy alert multiplier updated to **{multiplier}x**\n\n"
-            f"You'll now receive notifications when prices drop to **{multiplier}x** the launch price or below.",
+            f"✅ **Buy Alert Updated**\n\n"
+            f"📦 **Collection:** {escaped_collection_name}\n"
+            f"📑 **Sticker Pack:** {escaped_stickerpack_name}\n\n"
+            f"📈 **New Buy Alert:** {multiplier}x launch price\n\n"
+            f"You'll receive notifications when prices drop to **{multiplier}x** the launch price ({collection['launch_price']} TON) or below.",
             parse_mode="Markdown",
         )
 
     async def process_sell_multiplier_input(self, message: types.Message, text: str):
-        """Process sell multiplier input"""
+        """Process sell multiplier input for specific collection"""
         if message.from_user == None:
             await message.answer("❌ Unexpected error occured! ")
             return
         user_id = message.from_user.id
+        user_id_str = str(user_id)
 
         try:
             multiplier = float(text)
@@ -1165,17 +2056,45 @@ class BotHandlers:
             )
             return
 
-        # Update user settings
-        user_id_str = str(user_id)
-        self.bot.user_settings[user_id_str]["notification_settings"][
-            "sell_multiplier"
-        ] = multiplier
+        # Get collection ID from session
+        collection_data = self.bot.state_manager.get_collection_data(user_id)
+        collection_id = getattr(collection_data, 'editing_collection_id', None)
+        
+        if not collection_id:
+            await message.answer("❌ Collection ID not found. Please try again.")
+            self.bot.state_manager.reset_user_session(user_id)
+            return
+        
+        # Update collection-specific notification settings
+        collections = self.bot.user_settings.get(user_id_str, {}).get("collections", {})
+        if collection_id not in collections:
+            await message.answer("❌ Collection not found. Please try again.")
+            self.bot.state_manager.reset_user_session(user_id)
+            return
+        
+        collection = collections[collection_id]
+        if "notification_settings" not in collection:
+            from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
+            collection["notification_settings"] = {
+                "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                "enabled": True
+            }
+        
+        collection["notification_settings"]["sell_multiplier"] = multiplier
         self.bot.save_user_settings()
         self.bot.state_manager.reset_user_session(user_id)
 
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
+
         await message.answer(
-            f"✅ Sell alert multiplier updated to **{multiplier}x**\n\n"
-            f"You'll now receive notifications when prices rise to **{multiplier}x** the launch price or above.",
+            f"✅ **Sell Alert Updated**\n\n"
+            f"📦 **Collection:** {escaped_collection_name}\n"
+            f"📑 **Sticker Pack:** {escaped_stickerpack_name}\n\n"
+            f"📉 **New Sell Alert:** {multiplier}x launch price\n\n"
+            f"You'll receive notifications when prices rise to **{multiplier}x** the launch price ({collection['launch_price']} TON) or above.",
             parse_mode="Markdown",
         )
 
@@ -1219,12 +2138,18 @@ class BotHandlers:
         # Generate unique collection ID
         collection_id = str(uuid.uuid4())[:8]
 
-        # Create collection entry
+        # Create collection entry with default notification settings
+        from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
         new_collection = {
             "collection_name": collection_data.collection_name,
             "stickerpack_name": collection_data.stickerpack_name,
             "launch_price": collection_data.launch_price,
             "added_date": datetime.now().isoformat(),
+            "notification_settings": {
+                "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                "enabled": True
+            }
         }
 
         # Ensure user settings exist
@@ -1704,3 +2629,555 @@ class BotHandlers:
             text, reply_markup=builder.as_markup(), parse_mode="Markdown"
         )
         await callback.answer("Back to collections")
+
+    async def handle_sticker_callbacks(self, callback: types.CallbackQuery):
+        """Handle sticker-related callbacks"""
+        if callback.data is None:
+            logger.error("Callback data is None")
+            return
+        
+        action_parts = callback.data.split("_")
+        if len(action_parts) < 2:
+            await callback.answer("Invalid sticker action", show_alert=True)
+            return
+        
+        action = action_parts[1]
+        
+        try:
+            if action == "select" and len(action_parts) > 3:
+                if action_parts[2] == "collection":
+                    # Collection selected for analysis
+                    collection_index = int(action_parts[3])
+                    await self.handle_collection_selected(callback, collection_index)
+                elif action_parts[2] == "for" and action_parts[3] == "details":
+                    # Collection selected for sticker details
+                    collection_index = int(action_parts[4])
+                    await self.handle_collection_selected_for_details(callback, collection_index)
+            elif action == "sticker" and len(action_parts) > 3:
+                # Specific sticker selected - format: sticker_sticker_{collection_index}_{sticker_index}
+                await self.handle_sticker_selected(callback)
+            elif action == "back":
+                if len(action_parts) > 2 and action_parts[2] == "to":
+                    if action_parts[3] == "collections":
+                        if len(action_parts) > 4 and action_parts[4] == "details":
+                            # Back to collections from sticker details flow
+                            await self.cmd_sticker_details_callback(callback)
+                        else:
+                            # Back to collections from collection analysis
+                            await self.cmd_collection_analysis_callback(callback)
+            elif action == "cancel":
+                await self.handle_sticker_cancel(callback)
+            else:
+                await callback.answer("Unknown sticker action", show_alert=True)
+                
+        except Exception as e:
+            logger.error(f"Error in sticker callback: {e}")
+            await callback.answer("❌ Error processing request", show_alert=True)
+    
+    async def handle_collection_selected(self, callback: types.CallbackQuery, collection_index: int):
+        """Handle collection selection for analysis"""
+        try:
+            collections = await self.get_collections_cache()
+            if not collections or collection_index >= len(collections):
+                await callback.answer("Collection not found", show_alert=True)
+                return
+            
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            selected_collection = sorted_collections[collection_index]
+            
+            # Generate collection summary
+            summary = self.sticker_client.generate_collection_summary(selected_collection)
+            
+            # Add back button
+            builder = InlineKeyboardBuilder()
+            builder.row(
+                InlineKeyboardButton(
+                    text="⬅️ Back to Collections", 
+                    callback_data="sticker_back_to_collections"
+                )
+            )
+            
+            if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+                return "The message is no longer accessible"
+            
+            await callback.message.edit_text(
+                summary, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            await callback.answer()
+            
+        except Exception as e:
+            logger.error(f"Error handling collection selection: {e}")
+            await callback.answer("❌ Error analyzing collection", show_alert=True)
+    
+    async def handle_collection_selected_for_details(self, callback: types.CallbackQuery, collection_index: int):
+        """Handle collection selection for sticker details"""
+        try:
+            collections = await self.get_collections_cache()
+            if not collections or collection_index >= len(collections):
+                await callback.answer("Collection not found", show_alert=True)
+                return
+            
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            selected_collection = sorted_collections[collection_index]
+            
+            if not selected_collection.stickers:
+                await callback.answer("No stickers found in this collection", show_alert=True)
+                return
+            
+            # Show stickers in this collection
+            builder = InlineKeyboardBuilder()
+            
+            # Sort stickers by name
+            sorted_stickers = sorted(selected_collection.stickers, key=lambda s: s.name.lower())
+            
+            for i, sticker in enumerate(sorted_stickers[:20]):  # Limit to 20
+                builder.row(
+                    InlineKeyboardButton(
+                        text=f"🎯 {sticker.name}",
+                        callback_data=f"sticker_sticker_{collection_index}_{i}"
+                    )
+                )
+            
+            builder.row(
+                InlineKeyboardButton(
+                    text="⬅️ Back to Collections", 
+                    callback_data="sticker_back_to_collections_details"
+                )
+            )
+            
+            text = (
+                f"🎯 *{escape_markdown(selected_collection.name)}*\n\n"
+                f"Found *{escape_markdown(str(len(selected_collection.stickers)))}* stickers\\.\n\n"
+                "🎯 *Select a sticker for detailed analysis:*"
+            )
+            
+            if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+                return "The message is no longer accessible"
+            
+            await callback.message.edit_text(
+                text, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            await callback.answer()
+            
+        except Exception as e:
+            logger.error(f"Error handling collection selection for details: {e}")
+            await callback.answer("❌ Error loading stickers", show_alert=True)
+    
+    async def handle_sticker_selected(self, callback: types.CallbackQuery):
+        """Handle specific sticker selection"""
+        try:
+            # Parse collection and sticker indices from callback data
+            # Format: sticker_sticker_{collection_index}_{sticker_index}
+            action_parts = callback.data.split("_")
+            if len(action_parts) < 4:
+                await callback.answer("Invalid sticker selection", show_alert=True)
+                return
+            
+            collection_index = int(action_parts[2])
+            sticker_index = int(action_parts[3])
+            
+            collections = await self.get_collections_cache()
+            if not collections or collection_index >= len(collections):
+                await callback.answer("Collection not found", show_alert=True)
+                return
+            
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            selected_collection = sorted_collections[collection_index]
+            
+            sorted_stickers = sorted(selected_collection.stickers, key=lambda s: s.name.lower())
+            if sticker_index >= len(sorted_stickers):
+                await callback.answer("Sticker not found", show_alert=True)
+                return
+            
+            selected_sticker = sorted_stickers[sticker_index]
+            
+            # Generate sticker details
+            details = self.sticker_client.generate_sticker_details(selected_sticker)
+            
+            # Add back button
+            builder = InlineKeyboardBuilder()
+            builder.row(
+                InlineKeyboardButton(
+                    text="⬅️ Back to Stickers", 
+                    callback_data=f"sticker_select_for_details_{collection_index}"
+                ),
+                InlineKeyboardButton(
+                    text="📦 Collection Info", 
+                    callback_data=f"sticker_select_collection_{collection_index}"
+                )
+            )
+            
+            if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+                return "The message is no longer accessible"
+            
+            await callback.message.edit_text(
+                details, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            await callback.answer()
+            
+        except Exception as e:
+            logger.error(f"Error handling sticker selection: {e}")
+            await callback.answer("❌ Error analyzing sticker", show_alert=True)
+    
+    async def handle_sticker_cancel(self, callback: types.CallbackQuery):
+        """Handle sticker analysis cancellation"""
+        if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+            return "The message is no longer accessible"
+        
+        await callback.message.edit_text("❌ Sticker analysis cancelled.")
+        await callback.answer("Cancelled")
+    
+    async def cmd_collection_analysis_callback(self, callback: types.CallbackQuery):
+        """Show collection selection menu from callback"""
+        try:
+            # Get collections cache
+            collections = await self.get_collections_cache()
+            if not collections:
+                await callback.answer("❌ Failed to fetch collections data", show_alert=True)
+                return
+            
+            # Sort collections by name
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            
+            # Create inline keyboard with collections (20 per page)
+            builder = InlineKeyboardBuilder()
+            
+            for i, collection in enumerate(sorted_collections[:20]):  # Limit to 20
+                builder.row(
+                    InlineKeyboardButton(
+                        text=f"📦 {collection.name}",
+                        callback_data=f"sticker_select_collection_{i}"
+                    )
+                )
+            
+            builder.row(
+                InlineKeyboardButton(
+                    text="❌ Cancel", 
+                    callback_data="sticker_cancel"
+                )
+            )
+            
+            text = (
+                "📊 **Collection Analysis**\n\n"
+                f"Found **{len(sorted_collections)}** collections.\n\n"
+                "📦 **Select a collection to analyze:**"
+            )
+            
+            if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+                return "The message is no longer accessible"
+            
+            await callback.message.edit_text(
+                text, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await callback.answer()
+            
+        except Exception as e:
+            logger.error(f"Error in collection analysis callback: {e}")
+            await callback.answer("❌ Error loading collections", show_alert=True)
+    
+    async def cmd_sticker_details_callback(self, callback: types.CallbackQuery):
+        """Show collection selection menu for sticker details from callback"""
+        try:
+            # Get collections cache
+            collections = await self.get_collections_cache()
+            if not collections:
+                await callback.answer("❌ Failed to fetch collections data", show_alert=True)
+                return
+            
+            # Sort collections by name
+            sorted_collections = sorted(collections, key=lambda c: c.name.lower())
+            
+            # Create inline keyboard with collections (20 per page)
+            builder = InlineKeyboardBuilder()
+            
+            for i, collection in enumerate(sorted_collections[:20]):  # Limit to 20
+                builder.row(
+                    InlineKeyboardButton(
+                        text=f"📦 {collection.name}",
+                        callback_data=f"sticker_select_for_details_{i}"
+                    )
+                )
+            
+            builder.row(
+                InlineKeyboardButton(
+                    text="❌ Cancel", 
+                    callback_data="sticker_cancel"
+                )
+            )
+            
+            text = (
+                "🎯 **Sticker Analysis**\n\n"
+                f"Found **{len(sorted_collections)}** collections.\n\n"
+                "📦 **Select a collection to see its stickers:**"
+            )
+            
+            if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+                return "The message is no longer accessible"
+            
+            await callback.message.edit_text(
+                text, 
+                reply_markup=builder.as_markup(), 
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await callback.answer()
+            
+        except Exception as e:
+            logger.error(f"Error in sticker details callback: {e}")
+            await callback.answer("❌ Error loading collections", show_alert=True)
+    
+    async def handle_edit_callbacks(self, callback: types.CallbackQuery):
+        """Handle edit-related callbacks"""
+        if callback.data is None:
+            logger.error("Callback data is None")
+            return
+        
+        action_parts = callback.data.split("_")
+        if len(action_parts) < 3:
+            await callback.answer("Invalid edit action", show_alert=True)
+            return
+        
+        action = action_parts[1]
+        
+        try:
+            if action == "notifications" and len(action_parts) > 2:
+                collection_id = action_parts[2]
+                await self.show_notification_settings_details(callback, collection_id)
+            elif action == "buy" and len(action_parts) > 3 and action_parts[2] == "multiplier":
+                collection_id = action_parts[3]
+                await self.start_edit_buy_multiplier(callback, collection_id)
+            elif action == "sell" and len(action_parts) > 3 and action_parts[2] == "multiplier":
+                collection_id = action_parts[3]
+                await self.start_edit_sell_multiplier(callback, collection_id)
+            else:
+                await callback.answer("Unknown edit action", show_alert=True)
+                
+        except Exception as e:
+            logger.error(f"Error in edit callback: {e}")
+            await callback.answer("❌ Error processing request", show_alert=True)
+    
+    async def handle_toggle_callbacks(self, callback: types.CallbackQuery):
+        """Handle toggle-related callbacks"""
+        if callback.data is None:
+            logger.error("Callback data is None")
+            return
+        
+        action_parts = callback.data.split("_")
+        if len(action_parts) < 3:
+            await callback.answer("Invalid toggle action", show_alert=True)
+            return
+        
+        action = action_parts[1]
+        
+        try:
+            if action == "notifications" and len(action_parts) > 2:
+                collection_id = action_parts[2]
+                await self.toggle_collection_notifications(callback, collection_id)
+            else:
+                await callback.answer("Unknown toggle action", show_alert=True)
+                
+        except Exception as e:
+            logger.error(f"Error in toggle callback: {e}")
+            await callback.answer("❌ Error processing request", show_alert=True)
+    
+    async def show_notification_settings_details(self, callback: types.CallbackQuery, collection_id: str):
+        """Show detailed notification settings for a collection"""
+        user_id = str(callback.from_user.id)
+        collections = self.bot.user_settings.get(user_id, {}).get("collections", {})
+        
+        if collection_id not in collections:
+            await callback.answer("Collection not found!", show_alert=True)
+            return
+        
+        collection = collections[collection_id]
+        
+        # Ensure notification settings exist
+        if "notification_settings" not in collection:
+            from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
+            collection["notification_settings"] = {
+                "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                "enabled": True
+            }
+            self.bot.save_user_settings()
+        
+        notification_settings = collection["notification_settings"]
+        enabled_status = "✅ Enabled" if notification_settings.get("enabled", True) else "❌ Disabled"
+        
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
+        
+        text = (
+            f"🔔 **Notification Settings**\n\n"
+            f"📦 **Collection:** {escaped_collection_name}\n"
+            f"📑 **Sticker Pack:** {escaped_stickerpack_name}\n"
+            f"💰 **Launch Price:** {collection['launch_price']} TON\n\n"
+            f"🔔 **Status:** {enabled_status}\n"
+            f"📈 **Buy Alert:** {notification_settings['buy_multiplier']}x launch price\n"
+            f"📉 **Sell Alert:** {notification_settings['sell_multiplier']}x launch price\n\n"
+            f"💡 **How it works:**\n"
+            f"• Buy alerts trigger when price drops to {notification_settings['buy_multiplier']}x launch price or below\n"
+            f"• Sell alerts trigger when price rises to {notification_settings['sell_multiplier']}x launch price or above\n\n"
+            f"Use the buttons below to customize these settings:"
+        )
+        
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📈 Edit Buy Alert ({notification_settings['buy_multiplier']}x)",
+                callback_data=f"edit_buy_multiplier_{collection_id}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📉 Edit Sell Alert ({notification_settings['sell_multiplier']}x)",
+                callback_data=f"edit_sell_multiplier_{collection_id}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"🔔 {enabled_status}",
+                callback_data=f"toggle_notifications_{collection_id}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text="⬅️ Back to Collection",
+                callback_data=f"collection_edit_{collection_id}",
+            )
+        )
+        
+        if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+            return "The message is no longer accessible"
+        
+        await callback.message.edit_text(
+            text, 
+            reply_markup=builder.as_markup(), 
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await callback.answer()
+    
+    async def toggle_collection_notifications(self, callback: types.CallbackQuery, collection_id: str):
+        """Toggle notifications on/off for a collection"""
+        user_id = str(callback.from_user.id)
+        collections = self.bot.user_settings.get(user_id, {}).get("collections", {})
+        
+        if collection_id not in collections:
+            await callback.answer("Collection not found!", show_alert=True)
+            return
+        
+        collection = collections[collection_id]
+        
+        # Ensure notification settings exist
+        if "notification_settings" not in collection:
+            from config import DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER
+            collection["notification_settings"] = {
+                "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
+                "sell_multiplier": DEFAULT_SELL_MULTIPLIER,
+                "enabled": True
+            }
+        
+        # Toggle enabled status
+        current_status = collection["notification_settings"].get("enabled", True)
+        collection["notification_settings"]["enabled"] = not current_status
+        self.bot.save_user_settings()
+        
+        new_status = "enabled" if not current_status else "disabled"
+        await callback.answer(f"✅ Notifications {new_status}!")
+        
+        # Refresh the notification settings view
+        await self.show_notification_settings_details(callback, collection_id)
+    
+    async def start_edit_buy_multiplier(self, callback: types.CallbackQuery, collection_id: str):
+        """Start editing buy multiplier for a collection"""
+        user_id = callback.from_user.id
+        user_id_str = str(user_id)
+        collections = self.bot.user_settings.get(user_id_str, {}).get("collections", {})
+        
+        if collection_id not in collections:
+            await callback.answer("Collection not found!", show_alert=True)
+            return
+        
+        collection = collections[collection_id]
+        current_multiplier = collection.get("notification_settings", {}).get("buy_multiplier", 2.0)
+        
+        # Reset any existing flow and start new one
+        self.bot.state_manager.reset_user_session(user_id)
+        self.bot.state_manager.set_user_state(user_id, UserState.EDITING_BUY_MULTIPLIER)
+        
+        # Store collection ID for later use
+        self.bot.state_manager.update_collection_data(user_id, editing_collection_id=collection_id)
+        
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
+        
+        text = (
+            f"📈 **Edit Buy Alert Multiplier**\n\n"
+            f"📦 **Collection:** {escaped_collection_name}\n"
+            f"📑 **Sticker Pack:** {escaped_stickerpack_name}\n"
+            f"💰 **Launch Price:** {collection['launch_price']} TON\n\n"
+            f"Current buy alert: **{current_multiplier}x**\n\n"
+            f"Enter the new multiplier for buy alerts.\n"
+            f"You'll get notified when prices drop to this multiple of the launch price or below.\n\n"
+            f"Example: `2` (for 2x launch price), `1.5`, `3.0`\n\n"
+            f"Valid range: 0.1 to 100\n\n"
+            f"Type /cancel to abort this change."
+        )
+        
+        if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+            return "The message is no longer accessible"
+        
+        await callback.message.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+        await callback.answer()
+    
+    async def start_edit_sell_multiplier(self, callback: types.CallbackQuery, collection_id: str):
+        """Start editing sell multiplier for a collection"""
+        user_id = callback.from_user.id
+        user_id_str = str(user_id)
+        collections = self.bot.user_settings.get(user_id_str, {}).get("collections", {})
+        
+        if collection_id not in collections:
+            await callback.answer("Collection not found!", show_alert=True)
+            return
+        
+        collection = collections[collection_id]
+        current_multiplier = collection.get("notification_settings", {}).get("sell_multiplier", 3.0)
+        
+        # Reset any existing flow and start new one
+        self.bot.state_manager.reset_user_session(user_id)
+        self.bot.state_manager.set_user_state(user_id, UserState.EDITING_SELL_MULTIPLIER)
+        
+        # Store collection ID for later use
+        self.bot.state_manager.update_collection_data(user_id, editing_collection_id=collection_id)
+        
+        # Escape Markdown characters
+        escaped_collection_name = escape_markdown(collection["collection_name"])
+        escaped_stickerpack_name = escape_markdown(collection["stickerpack_name"])
+        
+        text = (
+            f"📉 **Edit Sell Alert Multiplier**\n\n"
+            f"📦 **Collection:** {escaped_collection_name}\n"
+            f"📑 **Sticker Pack:** {escaped_stickerpack_name}\n"
+            f"💰 **Launch Price:** {collection['launch_price']} TON\n\n"
+            f"Current sell alert: **{current_multiplier}x**\n\n"
+            f"Enter the new multiplier for sell alerts.\n"
+            f"You'll get notified when prices rise to this multiple of the launch price or above.\n\n"
+            f"Example: `3` (for 3x launch price), `2.5`, `5.0`\n\n"
+            f"Valid range: 0.1 to 100\n\n"
+            f"Type /cancel to abort this change."
+        )
+        
+        if isinstance(callback.message, InaccessibleMessage) or callback.message is None:
+            return "The message is no longer accessible"
+        
+        await callback.message.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+        await callback.answer()

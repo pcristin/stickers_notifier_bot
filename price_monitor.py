@@ -78,7 +78,7 @@ class PriceMonitor:
         total_collections_checked = 0
         for user_id, user_data in whitelisted_users.items():
             collections = user_data.get("collections", {})
-            notification_settings = user_data.get("notification_settings", {})
+            global_notification_settings = user_data.get("notification_settings", {})
             
             logger.info(f"User {user_id}: {len(collections)} collections")
             
@@ -86,15 +86,23 @@ class PriceMonitor:
                 total_collections_checked += 1
                 await self.check_collection_price(
                     user_id, collection_id, collection, 
-                    bundles, notification_settings
+                    bundles, global_notification_settings
                 )
                 
         logger.info(f"Price check completed for {len(bundles)} bundles, checked {total_collections_checked} user collections")
     
     async def check_collection_price(self, user_id: str, collection_id: str, collection: Dict, 
-                                   bundles: List[Dict], notification_settings: Dict):
+                                   bundles: List[Dict], global_notification_settings: Dict):
         """Check price for a specific collection and send notifications if needed"""
         try:
+            # Check if notifications are enabled for this collection
+            collection_notification_settings = collection.get("notification_settings", {})
+            is_enabled = collection_notification_settings.get("enabled", True)  # Default to enabled for backward compatibility
+            
+            if not is_enabled:
+                logger.debug(f"Notifications disabled for collection {collection['collection_name']} - {collection['stickerpack_name']} (user {user_id})")
+                return
+            
             # Find the collection in bundles
             bundle = self.api_client.find_collection_by_names(
                 bundles, 
@@ -116,10 +124,12 @@ class PriceMonitor:
                 logger.warning(f"No prices found for collection: {collection['collection_name']}")
                 return
                 
-            # Calculate thresholds
+            # Calculate thresholds using per-collection settings (with global fallback)
             launch_price = float(collection['launch_price'])
-            buy_multiplier = notification_settings.get('buy_multiplier', DEFAULT_BUY_MULTIPLIER)
-            sell_multiplier = notification_settings.get('sell_multiplier', DEFAULT_SELL_MULTIPLIER)
+            buy_multiplier = collection_notification_settings.get('buy_multiplier', 
+                                                                global_notification_settings.get('buy_multiplier', DEFAULT_BUY_MULTIPLIER))
+            sell_multiplier = collection_notification_settings.get('sell_multiplier', 
+                                                                 global_notification_settings.get('sell_multiplier', DEFAULT_SELL_MULTIPLIER))
             
             buy_threshold = launch_price * buy_multiplier
             sell_threshold = launch_price * sell_multiplier

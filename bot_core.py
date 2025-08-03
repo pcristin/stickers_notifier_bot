@@ -11,7 +11,8 @@ from notifications import NotificationManager
 from price_monitor import PriceMonitor
 from config import (
     USER_SETTINGS_FILE, DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER,
-    WHITELISTED_USER_IDS
+    WHITELISTED_USER_IDS, DEFAULT_DAILY_REPORTS_ENABLED, DEFAULT_REPORT_TIME_PREFERENCE,
+    FLOOR_UPDATE_ENABLED, FLOOR_UPDATE_INTERVAL
 )
 
 logger = logging.getLogger(__name__)
@@ -30,11 +31,16 @@ class StickerNotifierBot:
         self.state_manager = UserStateManager()
         self.notification_manager = None  # Will be initialized after bot is created
         self.price_monitor = None  # Will be initialized after other components
+        self.handlers = None  # Will be set from main.py
         
         # Log whitelist configuration
         logger.info(f"Whitelisted user IDs: {WHITELISTED_USER_IDS}")
         if not WHITELISTED_USER_IDS:
             logger.warning("⚠️  No whitelisted users configured! Bot will deny access to all users.")
+    
+    def set_handlers(self, handlers):
+        """Set the handlers instance for use in background tasks"""
+        self.handlers = handlers
     
     def initialize_managers(self):
         """Initialize managers that depend on the bot instance"""
@@ -67,7 +73,19 @@ class StickerNotifierBot:
                 "notification_settings": {
                     "buy_multiplier": DEFAULT_BUY_MULTIPLIER,
                     "sell_multiplier": DEFAULT_SELL_MULTIPLIER
+                },
+                "daily_reports": {
+                    "enabled": DEFAULT_DAILY_REPORTS_ENABLED,
+                    "time_preference": DEFAULT_REPORT_TIME_PREFERENCE
                 }
+            }
+            self.save_user_settings()
+        
+        # Ensure daily_reports exists for existing users (backward compatibility)
+        if "daily_reports" not in self.user_settings[user_id]:
+            self.user_settings[user_id]["daily_reports"] = {
+                "enabled": DEFAULT_DAILY_REPORTS_ENABLED,
+                "time_preference": DEFAULT_REPORT_TIME_PREFERENCE
             }
             self.save_user_settings()
     
@@ -112,6 +130,11 @@ class StickerNotifierBot:
                 return 
             asyncio.create_task(self.price_monitor.start_monitoring())
             
+            # Start periodic floor price updates if enabled
+            if FLOOR_UPDATE_ENABLED:
+                asyncio.create_task(self.start_floor_update_monitoring())
+                logger.info(f"Floor price updates enabled: every {FLOOR_UPDATE_INTERVAL} seconds")
+            
             # Start polling
             await self.dp.start_polling(self.bot)
         finally:
@@ -142,4 +165,32 @@ class StickerNotifierBot:
                 return "⚠️ Cannot verify collection existence (API error)"
         except Exception as e:
             logger.error(f"Error checking collection availability: {e}")
-            return "⚠️ Cannot verify collection existence (API error)" 
+            return "⚠️ Cannot verify collection existence (API error)"
+    
+    async def start_floor_update_monitoring(self):
+        """Start the periodic floor price update background task"""
+        logger.info("Starting periodic floor price update monitoring...")
+        
+        while True:
+            try:
+                logger.info("Running periodic floor price update...")
+                
+                # Call the internal update method from handlers
+                if hasattr(self, 'handlers') and self.handlers:
+                    result = await self.handlers.update_floor_prices_internal()
+                    
+                    if result["success"]:
+                        logger.info(f"Floor price update completed: {result['updated']} updated, "
+                                  f"{result['skipped']} skipped, {result['errors']} errors")
+                    else:
+                        logger.warning(f"Floor price update failed: {result['message']}")
+                else:
+                    logger.warning("Handlers not available for floor price update")
+                
+                # Wait for the next update cycle
+                await asyncio.sleep(FLOOR_UPDATE_INTERVAL)
+                
+            except Exception as e:
+                logger.error(f"Error in periodic floor price update: {e}")
+                # Wait a shorter time before retrying on error
+                await asyncio.sleep(300)  # 5 minutes retry delay 
