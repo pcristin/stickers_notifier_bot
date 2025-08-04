@@ -123,11 +123,11 @@ class DailyReportsScheduler:
             emoji = time_emojis.get(time_preference, "📊")
             
             # Send greeting message
-            greeting = f"{emoji} **Daily Report - {time_preference.title()}**\n\nGenerating your daily market report..."
+            greeting = f"{emoji} **Daily Market Overview - {time_preference.title()}**\n\nGenerating your daily market overview..."
             await self.bot.bot.send_message(user_id, greeting, parse_mode="Markdown")
             
-            # Generate and send the actual report using existing handler
-            await self.handlers.cmd_report(mock_message)
+            # Generate and send the market overview using existing handler
+            await self.handlers.cmd_market_overview(mock_message)
             
             logger.info(f"Daily report sent successfully to user {user_id} ({time_preference})")
             
@@ -135,7 +135,7 @@ class DailyReportsScheduler:
             logger.error(f"Error sending daily report to user {user_id}: {e}")
             # Send error message to user
             try:
-                error_msg = "❌ **Daily Report Error**\n\nSorry, there was an error generating your daily report. Please try using the /report command manually."
+                error_msg = "❌ **Daily Report Error**\n\nSorry, there was an error generating your daily market overview. Please try using the /market command manually."
                 await self.bot.bot.send_message(user_id, error_msg, parse_mode="Markdown")
             except:
                 pass  # Don't fail if we can't even send the error message

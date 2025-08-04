@@ -435,9 +435,9 @@ class BotHandlers:
             "• `/report` \\- Generate detailed trading report\n"
             "• `/wall` \\- Check account wall/balance\n\n"
             
-            "🤖 **Daily Reports System:**\n"
+            "🤖 **Daily Market Overview System:**\n"
             "• `/scheduler_status` \\- Check scheduler status & next report time\n"
-            "• `/test_daily_report` \\- Test daily report generation\n\n"
+            "• `/test_daily_report` \\- Test daily market overview generation\n\n"
             
             "⚙️ **Settings Categories:**\n"
             "• 📦 *Collection Settings* \\- Add/edit your collections\n"
@@ -3307,8 +3307,8 @@ class BotHandlers:
             # Send test report
             if hasattr(self.bot, 'daily_reports_scheduler') and self.bot.daily_reports_scheduler:
                 await message.answer(
-                    f"🧪 **Testing Daily Report**\n\n"
-                    f"Generating test report for {time_preference} preference...",
+                    f"🧪 **Testing Daily Market Overview**\n\n"
+                    f"Generating test market overview for {time_preference} preference...",
                     parse_mode="Markdown"
                 )
                 
@@ -3325,7 +3325,7 @@ class BotHandlers:
                 
         except Exception as e:
             logger.error(f"Error in test_daily_report command: {e}")
-            await message.answer("❌ Error testing daily report")
+            await message.answer("❌ Error testing daily market overview")
     
     async def start_edit_sell_multiplier(self, callback: types.CallbackQuery, collection_id: str):
         """Start editing sell multiplier for a collection"""
@@ -3438,8 +3438,8 @@ class BotHandlers:
             # Send test report
             if hasattr(self.bot, 'daily_reports_scheduler') and self.bot.daily_reports_scheduler:
                 await message.answer(
-                    f"🧪 **Testing Daily Report**\n\n"
-                    f"Generating test report for {time_preference} preference...",
+                    f"🧪 **Testing Daily Market Overview**\n\n"
+                    f"Generating test market overview for {time_preference} preference...",
                     parse_mode="Markdown"
                 )
                 
@@ -3456,4 +3456,4 @@ class BotHandlers:
                 
         except Exception as e:
             logger.error(f"Error in test_daily_report command: {e}")
-            await message.answer("❌ Error testing daily report")
+            await message.answer("❌ Error testing daily market overview")
