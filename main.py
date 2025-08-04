@@ -1,4 +1,6 @@
 import asyncio
+import signal
+import sys
 
 from bot_core import StickerNotifierBot
 from handlers import BotHandlers
@@ -23,8 +25,23 @@ async def main():
     # Set handlers reference for background tasks
     bot.set_handlers(handlers)
     
-    # Start the bot
-    await bot.start_polling()
+    # Setup signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Start the bot
+        await bot.start_polling()
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, shutting down...")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+    finally:
+        logger.info("Bot shutdown complete")
 
 if __name__ == "__main__":
     asyncio.run(main())

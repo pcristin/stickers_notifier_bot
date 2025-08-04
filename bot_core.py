@@ -139,11 +139,18 @@ class StickerNotifierBot:
             if self.price_monitor == None:
                 logger.error("PriceMonitor was not initialized yet! Try again runing /start command.")
                 return 
-            asyncio.create_task(self.price_monitor.start_monitoring())
+            
+            # Store task references for proper cleanup
+            self.background_tasks = []
+            
+            # Start price monitoring
+            price_task = asyncio.create_task(self.price_monitor.start_monitoring())
+            self.background_tasks.append(price_task)
             
             # Start periodic floor price updates if enabled
             if FLOOR_UPDATE_ENABLED:
-                asyncio.create_task(self.start_floor_update_monitoring())
+                floor_task = asyncio.create_task(self.start_floor_update_monitoring())
+                self.background_tasks.append(floor_task)
                 logger.info(f"Floor price updates enabled: every {FLOOR_UPDATE_INTERVAL} seconds")
             
             # Start daily reports scheduler
@@ -153,9 +160,45 @@ class StickerNotifierBot:
             
             # Start polling
             await self.dp.start_polling(self.bot)
+        except KeyboardInterrupt:
+            logger.info("Received shutdown signal, cleaning up...")
         finally:
-            if self.session:
+            await self.cleanup()
+    
+    async def cleanup(self):
+        """Clean up resources and tasks"""
+        logger.info("Starting cleanup process...")
+        
+        # Stop daily reports scheduler
+        if hasattr(self, 'daily_reports_scheduler') and self.daily_reports_scheduler:
+            try:
+                await self.daily_reports_scheduler.stop_scheduler()
+                logger.info("Daily reports scheduler stopped")
+            except Exception as e:
+                logger.error(f"Error stopping daily reports scheduler: {e}")
+        
+        # Cancel background tasks
+        if hasattr(self, 'background_tasks'):
+            for task in self.background_tasks:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logger.error(f"Error cancelling background task: {e}")
+            logger.info(f"Cancelled {len(self.background_tasks)} background tasks")
+        
+        # Close aiohttp session
+        if hasattr(self, 'session') and self.session:
+            try:
                 await self.session.close()
+                logger.info("HTTP session closed")
+            except Exception as e:
+                logger.error(f"Error closing session: {e}")
+        
+        logger.info("Cleanup process completed")
     
     async def check_collection_availability(self, collection_data) -> str:
         """Check if collection exists in API and return status text"""
