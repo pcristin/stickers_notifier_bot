@@ -9,10 +9,11 @@ from api_client import Scanner
 from user_states import UserStateManager
 from notifications import NotificationManager
 from price_monitor import PriceMonitor
+from daily_reports_scheduler import DailyReportsScheduler
 from config import (
     USER_SETTINGS_FILE, DEFAULT_BUY_MULTIPLIER, DEFAULT_SELL_MULTIPLIER,
     WHITELISTED_USER_IDS, DEFAULT_DAILY_REPORTS_ENABLED, DEFAULT_REPORT_TIME_PREFERENCE,
-    FLOOR_UPDATE_ENABLED, FLOOR_UPDATE_INTERVAL
+    FLOOR_UPDATE_ENABLED, FLOOR_UPDATE_INTERVAL, DEFAULT_TIMEZONE
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class StickerNotifierBot:
         self.state_manager = UserStateManager()
         self.notification_manager = None  # Will be initialized after bot is created
         self.price_monitor = None  # Will be initialized after other components
+        self.daily_reports_scheduler = None  # Will be initialized after handlers are set
         self.handlers = None  # Will be set from main.py
         
         # Log whitelist configuration
@@ -41,6 +43,8 @@ class StickerNotifierBot:
     def set_handlers(self, handlers):
         """Set the handlers instance for use in background tasks"""
         self.handlers = handlers
+        # Initialize daily reports scheduler now that we have handlers
+        self.daily_reports_scheduler = DailyReportsScheduler(self, handlers)
     
     def initialize_managers(self):
         """Initialize managers that depend on the bot instance"""
@@ -76,7 +80,8 @@ class StickerNotifierBot:
                 },
                 "daily_reports": {
                     "enabled": DEFAULT_DAILY_REPORTS_ENABLED,
-                    "time_preference": DEFAULT_REPORT_TIME_PREFERENCE
+                    "time_preference": DEFAULT_REPORT_TIME_PREFERENCE,
+                    "timezone": DEFAULT_TIMEZONE
                 }
             }
             self.save_user_settings()
@@ -85,8 +90,14 @@ class StickerNotifierBot:
         if "daily_reports" not in self.user_settings[user_id]:
             self.user_settings[user_id]["daily_reports"] = {
                 "enabled": DEFAULT_DAILY_REPORTS_ENABLED,
-                "time_preference": DEFAULT_REPORT_TIME_PREFERENCE
+                "time_preference": DEFAULT_REPORT_TIME_PREFERENCE,
+                "timezone": DEFAULT_TIMEZONE
             }
+            self.save_user_settings()
+        
+        # Ensure timezone exists in daily_reports (backward compatibility)
+        if "timezone" not in self.user_settings[user_id]["daily_reports"]:
+            self.user_settings[user_id]["daily_reports"]["timezone"] = DEFAULT_TIMEZONE
             self.save_user_settings()
     
     def cleanup_non_whitelisted_users(self) -> tuple[int, int]:
@@ -134,6 +145,11 @@ class StickerNotifierBot:
             if FLOOR_UPDATE_ENABLED:
                 asyncio.create_task(self.start_floor_update_monitoring())
                 logger.info(f"Floor price updates enabled: every {FLOOR_UPDATE_INTERVAL} seconds")
+            
+            # Start daily reports scheduler
+            if self.daily_reports_scheduler:
+                await self.daily_reports_scheduler.start_scheduler()
+                logger.info("Daily reports scheduler started")
             
             # Start polling
             await self.dp.start_polling(self.bot)

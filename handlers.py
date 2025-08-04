@@ -61,6 +61,8 @@ class BotHandlers:
         self.bot.dp.message(Command("sticker"))(
             require_whitelisted_user(self.cmd_sticker_details)
         )
+        self.bot.dp.message(Command("scheduler_status"))(require_whitelisted_user(self.cmd_scheduler_status))
+        self.bot.dp.message(Command("test_daily_report"))(require_whitelisted_user(self.cmd_test_daily_report))
         self.bot.dp.message(Command("help"))(require_whitelisted_user(self.cmd_help))
         self.bot.dp.message(Command("info"))(require_whitelisted_user(self.cmd_help))
 
@@ -76,6 +78,9 @@ class BotHandlers:
         )
         self.bot.dp.callback_query(F.data.startswith("daily_reports_"))(
             require_whitelisted_user(self.handle_daily_reports_callbacks)
+        )
+        self.bot.dp.callback_query(F.data.startswith("set_timezone_"))(
+            require_whitelisted_user(self.handle_timezone_setting)
         )
         self.bot.dp.callback_query(F.data.startswith("confirm_"))(
             require_whitelisted_user(self.handle_confirmation)
@@ -429,6 +434,10 @@ class BotHandlers:
             "• `/update_floor` \\- Import floor prices from Google Sheets\n"
             "• `/report` \\- Generate detailed trading report\n"
             "• `/wall` \\- Check account wall/balance\n\n"
+            
+            "🤖 **Daily Reports System:**\n"
+            "• `/scheduler_status` \\- Check scheduler status & next report time\n"
+            "• `/test_daily_report` \\- Test daily report generation\n\n"
             
             "⚙️ **Settings Categories:**\n"
             "• 📦 *Collection Settings* \\- Add/edit your collections\n"
@@ -1340,6 +1349,7 @@ class BotHandlers:
         
         enabled = daily_reports.get("enabled", True)
         time_preference = daily_reports.get("time_preference", "morning")
+        user_timezone = daily_reports.get("timezone", "UTC")
         
         builder = InlineKeyboardBuilder()
         
@@ -1366,9 +1376,27 @@ class BotHandlers:
             )
         )
         
+        # Timezone setting
+        builder.row(
+            InlineKeyboardButton(
+                text=f"🌍 Timezone: {user_timezone}",
+                callback_data="daily_reports_timezone"
+            )
+        )
+        
         builder.row(
             InlineKeyboardButton(text="⬅️ Back to Main", callback_data="main_back")
         )
+        
+        # Calculate next report time
+        next_report_info = ""
+        if enabled and hasattr(self.bot, 'daily_reports_scheduler') and self.bot.daily_reports_scheduler:
+            try:
+                next_time = self.bot.daily_reports_scheduler.get_next_report_time(user_id)
+                if next_time:
+                    next_report_info = f"\n⏰ **Next Report:** {next_time.strftime('%Y-%m-%d %H:%M %Z')}"
+            except Exception as e:
+                logger.error(f"Error calculating next report time: {e}")
         
         text = (
             "📰 **Daily Reports Settings**\n\n"
@@ -1820,8 +1848,80 @@ class BotHandlers:
             
             # Refresh the settings view
             await self.show_daily_reports_settings(callback)
+            
+        elif action == "timezone":
+            # Show timezone selection
+            await self.show_timezone_selection(callback)
+            
         else:
             await callback.answer("Unknown daily reports action", show_alert=True)
+
+    async def show_timezone_selection(self, callback: types.CallbackQuery):
+        """Show timezone selection menu"""
+        builder = InlineKeyboardBuilder()
+        
+        # Common timezones
+        common_timezones = [
+            ("UTC", "UTC"),
+            ("US/Eastern", "US Eastern"),
+            ("US/Central", "US Central"),
+            ("US/Mountain", "US Mountain"),
+            ("US/Pacific", "US Pacific"),
+            ("Europe/London", "London"),
+            ("Europe/Paris", "Paris"),
+            ("Europe/Berlin", "Berlin"),
+            ("Europe/Moscow", "Moscow"),
+            ("Asia/Tokyo", "Tokyo"),
+            ("Asia/Shanghai", "Shanghai"),
+            ("Asia/Kolkata", "India"),
+            ("Australia/Sydney", "Sydney")
+        ]
+        
+        for tz_id, display_name in common_timezones:
+            builder.row(
+                InlineKeyboardButton(
+                    text=display_name,
+                    callback_data=f"set_timezone_{tz_id.replace('/', '_')}"
+                )
+            )
+        
+        builder.row(
+            InlineKeyboardButton(text="⬅️ Back to Daily Reports", callback_data="daily_reports")
+        )
+        
+        text = (
+            "🌍 **Select Your Timezone**\n\n"
+            "Choose your timezone for daily report scheduling:\n\n"
+            "⏰ Reports will be sent at your local time based on this setting."
+        )
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+
+    async def handle_timezone_setting(self, callback: types.CallbackQuery):
+        """Handle timezone setting"""
+        if not callback.data or not callback.data.startswith("set_timezone_"):
+            return
+            
+        timezone_id = callback.data.replace("set_timezone_", "").replace("_", "/")
+        user_id = str(callback.from_user.id)
+        
+        # Validate timezone
+        try:
+            import pytz
+            pytz.timezone(timezone_id)
+        except:
+            await callback.answer("❌ Invalid timezone", show_alert=True)
+            return
+        
+        # Update user settings
+        self.bot.ensure_user_settings(user_id)
+        self.bot.user_settings[user_id]["daily_reports"]["timezone"] = timezone_id
+        self.bot.save_user_settings()
+        
+        await callback.answer(f"🌍 Timezone set to {timezone_id}")
+        
+        # Go back to daily reports settings
+        await self.show_daily_reports_settings(callback)
 
     async def handle_text_input(self, message: types.Message):
         """Handle text input from users during flows"""
@@ -3138,6 +3238,94 @@ class BotHandlers:
         
         await callback.message.edit_text(text, parse_mode=ParseMode.MARKDOWN)
         await callback.answer()
+
+    async def cmd_scheduler_status(self, message: types.Message):
+        """Show daily reports scheduler status"""
+        try:
+            if not hasattr(self.bot, 'daily_reports_scheduler') or not self.bot.daily_reports_scheduler:
+                await message.answer("❌ Daily reports scheduler is not initialized")
+                return
+                
+            status = self.bot.daily_reports_scheduler.get_scheduler_status()
+            
+            status_emoji = "✅" if status["running"] else "❌"
+            status_text = "Running" if status["running"] else "Stopped"
+            
+            # Get time mapping info
+            time_info = []
+            for time_pref, hour in status["time_mappings"].items():
+                time_info.append(f"• {time_pref.title()}: {hour:02d}:00")
+            
+            # Get next report times for this user
+            user_id = str(message.from_user.id)
+            next_report_info = ""
+            if user_id in self.bot.user_settings:
+                try:
+                    next_time = self.bot.daily_reports_scheduler.get_next_report_time(user_id)
+                    if next_time:
+                        next_report_info = f"\n🕐 **Your Next Report:** {next_time.strftime('%Y-%m-%d %H:%M %Z')}"
+                    else:
+                        next_report_info = "\n⏸️ **Your Daily Reports:** Disabled"
+                except Exception as e:
+                    logger.error(f"Error getting next report time: {e}")
+                    next_report_info = "\n❌ **Error calculating next report time**"
+            
+            text = (
+                f"📊 **Daily Reports Scheduler Status**\n\n"
+                f"{status_emoji} **Status:** {status_text}\n"
+                f"👥 **Enabled Users:** {status['enabled_users']}\n"
+                f"🌍 **Server Timezone:** {status['timezone']}\n\n"
+                f"⏰ **Time Mappings:**\n" + "\n".join(time_info) + 
+                next_report_info
+            )
+            
+            await message.answer(text, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error in scheduler_status command: {e}")
+            await message.answer("❌ Error retrieving scheduler status")
+
+    async def cmd_test_daily_report(self, message: types.Message):
+        """Test daily report generation for the current user"""
+        try:
+            user_id = str(message.from_user.id)
+            
+            # Check if user has daily reports enabled
+            self.bot.ensure_user_settings(user_id)
+            daily_reports = self.bot.user_settings[user_id]["daily_reports"]
+            
+            if not daily_reports.get("enabled", False):
+                await message.answer(
+                    "❌ **Daily Reports Disabled**\n\n"
+                    "Please enable daily reports in /settings first.",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            time_preference = daily_reports.get("time_preference", "morning")
+            
+            # Send test report
+            if hasattr(self.bot, 'daily_reports_scheduler') and self.bot.daily_reports_scheduler:
+                await message.answer(
+                    f"🧪 **Testing Daily Report**\n\n"
+                    f"Generating test report for {time_preference} preference...",
+                    parse_mode="Markdown"
+                )
+                
+                try:
+                    await self.bot.daily_reports_scheduler._send_daily_report(
+                        int(user_id), time_preference
+                    )
+                    await message.answer("✅ Test daily report sent successfully!")
+                except Exception as e:
+                    logger.error(f"Error sending test daily report: {e}")
+                    await message.answer(f"❌ Error sending test report: {str(e)}")
+            else:
+                await message.answer("❌ Daily reports scheduler is not available")
+                
+        except Exception as e:
+            logger.error(f"Error in test_daily_report command: {e}")
+            await message.answer("❌ Error testing daily report")
     
     async def start_edit_sell_multiplier(self, callback: types.CallbackQuery, collection_id: str):
         """Start editing sell multiplier for a collection"""
@@ -3181,3 +3369,91 @@ class BotHandlers:
         
         await callback.message.edit_text(text, parse_mode=ParseMode.MARKDOWN)
         await callback.answer()
+
+    async def cmd_scheduler_status(self, message: types.Message):
+        """Show daily reports scheduler status"""
+        try:
+            if not hasattr(self.bot, 'daily_reports_scheduler') or not self.bot.daily_reports_scheduler:
+                await message.answer("❌ Daily reports scheduler is not initialized")
+                return
+                
+            status = self.bot.daily_reports_scheduler.get_scheduler_status()
+            
+            status_emoji = "✅" if status["running"] else "❌"
+            status_text = "Running" if status["running"] else "Stopped"
+            
+            # Get time mapping info
+            time_info = []
+            for time_pref, hour in status["time_mappings"].items():
+                time_info.append(f"• {time_pref.title()}: {hour:02d}:00")
+            
+            # Get next report times for this user
+            user_id = str(message.from_user.id)
+            next_report_info = ""
+            if user_id in self.bot.user_settings:
+                try:
+                    next_time = self.bot.daily_reports_scheduler.get_next_report_time(user_id)
+                    if next_time:
+                        next_report_info = f"\n🕐 **Your Next Report:** {next_time.strftime('%Y-%m-%d %H:%M %Z')}"
+                    else:
+                        next_report_info = "\n⏸️ **Your Daily Reports:** Disabled"
+                except Exception as e:
+                    logger.error(f"Error getting next report time: {e}")
+                    next_report_info = "\n❌ **Error calculating next report time**"
+            
+            text = (
+                f"📊 **Daily Reports Scheduler Status**\n\n"
+                f"{status_emoji} **Status:** {status_text}\n"
+                f"👥 **Enabled Users:** {status['enabled_users']}\n"
+                f"🌍 **Server Timezone:** {status['timezone']}\n\n"
+                f"⏰ **Time Mappings:**\n" + "\n".join(time_info) + 
+                next_report_info
+            )
+            
+            await message.answer(text, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error in scheduler_status command: {e}")
+            await message.answer("❌ Error retrieving scheduler status")
+
+    async def cmd_test_daily_report(self, message: types.Message):
+        """Test daily report generation for the current user"""
+        try:
+            user_id = str(message.from_user.id)
+            
+            # Check if user has daily reports enabled
+            self.bot.ensure_user_settings(user_id)
+            daily_reports = self.bot.user_settings[user_id]["daily_reports"]
+            
+            if not daily_reports.get("enabled", False):
+                await message.answer(
+                    "❌ **Daily Reports Disabled**\n\n"
+                    "Please enable daily reports in /settings first.",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            time_preference = daily_reports.get("time_preference", "morning")
+            
+            # Send test report
+            if hasattr(self.bot, 'daily_reports_scheduler') and self.bot.daily_reports_scheduler:
+                await message.answer(
+                    f"🧪 **Testing Daily Report**\n\n"
+                    f"Generating test report for {time_preference} preference...",
+                    parse_mode="Markdown"
+                )
+                
+                try:
+                    await self.bot.daily_reports_scheduler._send_daily_report(
+                        int(user_id), time_preference
+                    )
+                    await message.answer("✅ Test daily report sent successfully!")
+                except Exception as e:
+                    logger.error(f"Error sending test daily report: {e}")
+                    await message.answer(f"❌ Error sending test report: {str(e)}")
+            else:
+                await message.answer("❌ Daily reports scheduler is not available")
+                
+        except Exception as e:
+            logger.error(f"Error in test_daily_report command: {e}")
+            await message.answer("❌ Error testing daily report")

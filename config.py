@@ -47,6 +47,16 @@ DEFAULT_SELL_MULTIPLIER = 3.0
 DEFAULT_DAILY_REPORTS_ENABLED = True
 DEFAULT_REPORT_TIME_PREFERENCE = "morning"  # morning, afternoon, evening
 
+# Time preference to hour mapping (24-hour format)
+TIME_PREFERENCE_HOURS = {
+    "morning": 9,    # 9:00 AM
+    "afternoon": 14, # 2:00 PM  
+    "evening": 19    # 7:00 PM
+}
+
+# Timezone configuration
+DEFAULT_TIMEZONE = os.getenv("TIMEZONE", "UTC")  # Default to UTC if not specified
+
 # Periodic floor price update settings
 FLOOR_UPDATE_ENABLED = os.getenv("FLOOR_UPDATE_ENABLED", "false").lower() == "true"
 FLOOR_UPDATE_INTERVAL = int(os.getenv("FLOOR_UPDATE_INTERVAL", 7200))  # 2 hours in seconds
