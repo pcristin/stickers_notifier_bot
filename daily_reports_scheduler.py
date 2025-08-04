@@ -101,7 +101,7 @@ class DailyReportsScheduler:
     async def _send_daily_report(self, user_id: int, time_preference: str):
         """Send daily report to a specific user"""
         try:
-            # Create a mock message object for the report command
+            # Create a mock message object for the market overview command
             class MockMessage:
                 def __init__(self, user_id: int, bot_instance):
                     self.from_user = type('obj', (object,), {'id': user_id})
@@ -109,7 +109,30 @@ class DailyReportsScheduler:
                     self.bot_instance = bot_instance
                     
                 async def answer(self, text, **kwargs):
-                    await self.bot_instance.bot.send_message(user_id, text, **kwargs)
+                    return await self.bot_instance.bot.send_message(user_id, text, **kwargs)
+                    
+                async def reply(self, text, **kwargs):
+                    # Return a mock message that can be edited
+                    sent_msg = await self.bot_instance.bot.send_message(user_id, text, **kwargs)
+                    return MockSentMessage(sent_msg, self.bot_instance.bot)
+            
+            class MockSentMessage:
+                def __init__(self, message, bot):
+                    self.message = message
+                    self.bot = bot
+                    
+                async def edit_text(self, text, **kwargs):
+                    try:
+                        return await self.bot.edit_message_text(
+                            text=text,
+                            chat_id=self.message.chat.id,
+                            message_id=self.message.message_id,
+                            **kwargs
+                        )
+                    except Exception as e:
+                        logger.error(f"Error editing message: {e}")
+                        # If editing fails, send a new message instead
+                        return await self.bot.send_message(self.message.chat.id, text, **kwargs)
                     
             # Create mock message
             mock_message = MockMessage(user_id, self.bot)
