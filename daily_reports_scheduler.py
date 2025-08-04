@@ -103,16 +103,16 @@ class DailyReportsScheduler:
         try:
             # Create a mock message object for the report command
             class MockMessage:
-                def __init__(self, user_id: int):
+                def __init__(self, user_id: int, bot_instance):
                     self.from_user = type('obj', (object,), {'id': user_id})
                     self.chat = type('obj', (object,), {'id': user_id})
+                    self.bot_instance = bot_instance
                     
                 async def answer(self, text, **kwargs):
-                    await self.bot.send_message(user_id, text, **kwargs)
+                    await self.bot_instance.bot.send_message(user_id, text, **kwargs)
                     
             # Create mock message
-            mock_message = MockMessage(user_id)
-            mock_message.bot = self.bot
+            mock_message = MockMessage(user_id, self.bot)
             
             # Get time emoji for the greeting
             time_emojis = {
@@ -124,7 +124,7 @@ class DailyReportsScheduler:
             
             # Send greeting message
             greeting = f"{emoji} **Daily Report - {time_preference.title()}**\n\nGenerating your daily market report..."
-            await self.bot.send_message(user_id, greeting, parse_mode="Markdown")
+            await self.bot.bot.send_message(user_id, greeting, parse_mode="Markdown")
             
             # Generate and send the actual report using existing handler
             await self.handlers.cmd_report(mock_message)
@@ -136,7 +136,7 @@ class DailyReportsScheduler:
             # Send error message to user
             try:
                 error_msg = "❌ **Daily Report Error**\n\nSorry, there was an error generating your daily report. Please try using the /report command manually."
-                await self.bot.send_message(user_id, error_msg, parse_mode="Markdown")
+                await self.bot.bot.send_message(user_id, error_msg, parse_mode="Markdown")
             except:
                 pass  # Don't fail if we can't even send the error message
                 
