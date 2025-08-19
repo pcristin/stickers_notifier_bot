@@ -1101,6 +1101,7 @@ class BotHandlers:
         total_unrealized_pnl = 0.0
         total_spent = 0.0
         total_realized_pnl = 0.0
+        total_left_on_cold = 0.0
 
         for data in report_data:
             collection_name = data["collection_name"]
@@ -1113,11 +1114,13 @@ class BotHandlers:
             total_sells = data["total_sells"]
             realized_pnl = data["realized_pnl"]
             collection_spent = data["collection_spent_on_markets"]
+            left_on_cold = data["left_on_cold"]
 
             # Calculate total spent for this collection
             total_spent += collection_spent
             total_unrealized_pnl += unrealized_pnl
             total_realized_pnl += realized_pnl
+            total_left_on_cold += left_on_cold
 
             # Format the collection section
             dateline.append(
@@ -1133,6 +1136,7 @@ class BotHandlers:
             )
             dateline.append(f"Total sold: *{total_sells}*")
             dateline.append(f"Realized PnL: *{escape_markdown(f'{realized_pnl:.3f}')}*")
+            dateline.append(f"Left on cold: *{escape_markdown(f'{left_on_cold:.3f}')}*")
 
             dateline.append("")  # Empty line after each collection
 
@@ -1143,6 +1147,7 @@ class BotHandlers:
                 f"Total spent on markets: *{escape_markdown(f'{total_spent:.2f}')}*",
                 f"Unrealized PnL: *{escape_markdown(f'{total_unrealized_pnl:.3f}')}*",
                 f"Realized PnL: *{escape_markdown(f'{total_realized_pnl:.3f}')}*",
+                f"Total left on cold wallets: *{escape_markdown(f'{total_left_on_cold:.3f}')}*",
             ]
         )
 

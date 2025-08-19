@@ -39,6 +39,7 @@ class ReportDataCells:
     stickerpack_name = (2, GoogleSheetsCols.F.value)
     realized_pnl = (11, GoogleSheetsCols.F.value)
     collection_spent_on_markets = (6, GoogleSheetsCols.B.value)
+    left_on_cold = (3, GoogleSheetsCols.B.value)
 
 
 class SheetsClient:
@@ -157,6 +158,10 @@ class SheetsClient:
                 ReportDataCells.collection_spent_on_markets[1],
             ).value
 
+            left_on_cold = worksheet.cell(
+                ReportDataCells.left_on_cold[0], ReportDataCells.left_on_cold[1]
+            ).value
+
             # Convert string values to appropriate types
             def safe_float(value):
                 if value is None or value == "":
@@ -191,6 +196,7 @@ class SheetsClient:
                 "unrealized_pnl": safe_float(unrealized_pnl),
                 "realized_pnl": safe_float(realized_pnl),
                 "collection_spent_on_markets": safe_float(collection_spent_on_markets),
+                "left_on_cold": safe_float(left_on_cold),
             }
 
         except Exception as e:
