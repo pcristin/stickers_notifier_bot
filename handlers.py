@@ -593,8 +593,11 @@ class BotHandlers:
     async def cmd_update_floor(self, message: types.Message):
         """Update floor prices in Google Sheets from scanner API"""
         # Send processing message for command
+        from utils import escape_markdown
+        initial_title = f"*{escape_markdown('Updating floor prices...')}*"
+        initial_body = escape_markdown("Initializing...")
         status_msg = await message.answer(
-            "🔄 *Updating floor prices...*\n\nInitializing...",
+            f"🔄 {initial_title}\n\n{initial_body}",
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         
@@ -736,7 +739,8 @@ class BotHandlers:
                     summary_text += f"{detail}\n"
 
                 if len(results["details"]) > 10:
-                    summary_text += f"\n... and {len(results['details']) - 10} more"
+                    # Use ellipsis character to avoid MDV2 dot escaping
+                    summary_text += f"\n… and {len(results['details']) - 10} more"
 
             return {
                 "success": True,
