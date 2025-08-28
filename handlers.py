@@ -594,15 +594,15 @@ class BotHandlers:
         """Update floor prices in Google Sheets from scanner API"""
         # Send processing message for command
         status_msg = await message.answer(
-            "🔄 **Updating floor prices...**\n\nInitializing...",
-            parse_mode="Markdown",
+            "🔄 *Updating floor prices...*\n\nInitializing...",
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
         
         # Call the main update method
         result = await self.update_floor_prices_internal()
         
         # Update the status message with result
-        await status_msg.edit_text(result["message"], parse_mode="Markdown")
+        await status_msg.edit_text(result["message"], parse_mode=ParseMode.MARKDOWN_V2)
 
     async def update_floor_prices_internal(self) -> dict:
         """Internal method to update floor prices, returns result dict"""
@@ -675,8 +675,9 @@ class BotHandlers:
 
                 if not collection_name or not stickerpack_name:
                     results["skipped"] += 1
+                    from utils import escape_markdown
                     results["details"].append(
-                        f"⚠️ {worksheet.title}: Missing collection/stickerpack info"
+                        f"⚠️ {escape_markdown(worksheet.title)}: Missing collection/stickerpack info"
                     )
                     continue
 
@@ -687,8 +688,9 @@ class BotHandlers:
 
                 if not matching_bundle:
                     results["skipped"] += 1
+                    from utils import escape_markdown
                     results["details"].append(
-                        f"⚠️ {worksheet.title}: No API data for {collection_name} - {stickerpack_name}"
+                        f"⚠️ {escape_markdown(worksheet.title)}: No API data for {escape_markdown(collection_name)} \\- {escape_markdown(stickerpack_name)}"
                     )
                     continue
 
@@ -696,36 +698,40 @@ class BotHandlers:
                 floor_price = self.bot.api_client.get_lowest_price(matching_bundle)
                 if floor_price is None:
                     results["errors"] += 1
+                    from utils import escape_markdown
                     results["details"].append(
-                        f"❌ {worksheet.title}: No price data available"
+                        f"❌ {escape_markdown(worksheet.title)}: No price data available"
                     )
                     continue
 
                 # Update floor price
                 if sheets_client.update_floor_price(worksheet, floor_price):
                     results["updated"] += 1
+                    from utils import escape_markdown
                     results["details"].append(
-                        f"✅ {worksheet.title}: Updated to {floor_price} TON"
+                        f"✅ {escape_markdown(worksheet.title)}: Updated to {escape_markdown(f'{floor_price}')} TON"
                     )
                 else:
                     results["errors"] += 1
-                    results["details"].append(f"❌ {worksheet.title}: Failed to update")
+                    from utils import escape_markdown
+                    results["details"].append(f"❌ {escape_markdown(worksheet.title)}: Failed to update")
 
             # Format final summary
             from datetime import datetime
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
+            from utils import escape_markdown
             summary_text = (
-                f"🕐 **{current_time}**\n\n"
-                f"📊 **Floor Price Update Complete**\n\n"
-                f"✅ **Updated:** {results['updated']} worksheets\n"
-                f"⚠️ **Skipped:** {results['skipped']} worksheets\n"
-                f"❌ **Errors:** {results['errors']} worksheets\n\n"
+                f"🕐 *{escape_markdown(current_time)}*\n\n"
+                f"📊 *Floor Price Update Complete*\n\n"
+                f"✅ *Updated:* {escape_markdown(str(results['updated']))} worksheets\n"
+                f"⚠️ *Skipped:* {escape_markdown(str(results['skipped']))} worksheets\n"
+                f"❌ *Errors:* {escape_markdown(str(results['errors']))} worksheets\n\n"
             )
 
             # Add details (limit to avoid message length issues)
             if results["details"]:
-                summary_text += "**Details:**\n"
+                summary_text += "*Details:*\n"
                 for detail in results["details"][:10]:  # Show max 10 details
                     summary_text += f"{detail}\n"
 
