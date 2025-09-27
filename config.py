@@ -1,5 +1,16 @@
 import os
+from typing import Optional
 from dotenv import load_dotenv
+
+
+def _to_float(value: Optional[str], default: float) -> float:
+    """Safely convert environment values to float with fallback."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 # Load environment variables from .env file
 load_dotenv()
@@ -64,3 +75,7 @@ FLOOR_UPDATE_INTERVAL = int(os.getenv("FLOOR_UPDATE_INTERVAL", 7200))  # 2 hours
 # Google Sheets configuration
 GOOGLE_SHEETS_KEY = os.getenv("GOOGLE_SHEETS_KEY")
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", ".credentials.json")
+GOOGLE_SHEETS_READ_DELAY = _to_float(os.getenv("GOOGLE_SHEETS_READ_DELAY"), 1.0)
+GOOGLE_SHEETS_WORKSHEET_DELAY = _to_float(
+    os.getenv("GOOGLE_SHEETS_WORKSHEET_DELAY"), 1.0
+)

@@ -1,5 +1,6 @@
 import gspread
 import logging
+import time
 from typing import List, Optional, Tuple, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -43,9 +44,33 @@ class ReportDataCells:
 
 
 class SheetsClient:
-    def __init__(self, credentials_path: str):
+    def __init__(
+        self,
+        credentials_path: str,
+        read_delay: float = 0.0,
+        worksheet_delay: float = 0.0,
+    ):
         self.credentials_path = credentials_path
         self.gc = None
+        self.read_delay = max(0.0, read_delay)
+        self.worksheet_delay = max(0.0, worksheet_delay)
+
+    def _sleep(self, delay: float) -> None:
+        if delay > 0:
+            time.sleep(delay)
+
+    def _throttle_read(self) -> None:
+        self._sleep(self.read_delay)
+
+    def _throttle_between_worksheets(self) -> None:
+        self._sleep(self.worksheet_delay)
+
+    def _get_cell_value(
+        self, worksheet: gspread.Worksheet, cell: Tuple[int, int]
+    ) -> Optional[str]:
+        value = worksheet.cell(cell[0], cell[1]).value
+        self._throttle_read()
+        return value
 
     def authenticate(self) -> bool:
         """Authenticate with Google Sheets API"""
@@ -73,13 +98,13 @@ class SheetsClient:
     ) -> Tuple[Optional[str], Optional[str]]:
         """Extract collection name and stickerpack name from worksheet"""
         try:
-            collection_name = worksheet.cell(
-                ReportDataCells.collection_name[0], ReportDataCells.collection_name[1]
-            ).value
+            collection_name = self._get_cell_value(
+                worksheet, ReportDataCells.collection_name
+            )
 
-            stickerpack_name = worksheet.cell(
-                ReportDataCells.stickerpack_name[0], ReportDataCells.stickerpack_name[1]
-            ).value
+            stickerpack_name = self._get_cell_value(
+                worksheet, ReportDataCells.stickerpack_name
+            )
 
             # Strip whitespace and handle empty values
             collection_name = collection_name.strip() if collection_name else None
@@ -116,51 +141,47 @@ class SheetsClient:
                 return None
 
             # Get all required values
-            floor_price = worksheet.cell(
-                ReportDataCells.floor_price_cell[0], ReportDataCells.floor_price_cell[1]
-            ).value
+            floor_price = self._get_cell_value(
+                worksheet, ReportDataCells.floor_price_cell
+            )
 
-            total_buys = worksheet.cell(
-                ReportDataCells.total_buys_cell[0], ReportDataCells.total_buys_cell[1]
-            ).value
+            total_buys = self._get_cell_value(
+                worksheet, ReportDataCells.total_buys_cell
+            )
 
-            percent_supply = worksheet.cell(
-                ReportDataCells.percents_of_total_supply[0],
-                ReportDataCells.percents_of_total_supply[1],
-            ).value
+            percent_supply = self._get_cell_value(
+                worksheet, ReportDataCells.percents_of_total_supply
+            )
 
-            avg_buy_price = worksheet.cell(
-                ReportDataCells.avg_buy_price[0], ReportDataCells.avg_buy_price[1]
-            ).value
+            avg_buy_price = self._get_cell_value(
+                worksheet, ReportDataCells.avg_buy_price
+            )
 
-            unrealized_pnl = worksheet.cell(
-                ReportDataCells.unrealized_pnl[0], ReportDataCells.unrealized_pnl[1]
-            ).value
+            unrealized_pnl = self._get_cell_value(
+                worksheet, ReportDataCells.unrealized_pnl
+            )
 
-            realized_pnl = worksheet.cell(
-                ReportDataCells.realized_pnl[0], ReportDataCells.realized_pnl[1]
-            ).value
+            realized_pnl = self._get_cell_value(
+                worksheet, ReportDataCells.realized_pnl
+            )
 
-            on_sale = worksheet.cell(
-                ReportDataCells.on_sale[0], ReportDataCells.on_sale[1]
-            ).value
+            on_sale = self._get_cell_value(worksheet, ReportDataCells.on_sale)
 
-            total_sells = worksheet.cell(
-                ReportDataCells.total_sells[0], ReportDataCells.total_sells[1]
-            ).value
+            total_sells = self._get_cell_value(
+                worksheet, ReportDataCells.total_sells
+            )
 
-            total_left = worksheet.cell(
-                ReportDataCells.total_left[0], ReportDataCells.total_left[1]
-            ).value
+            total_left = self._get_cell_value(
+                worksheet, ReportDataCells.total_left
+            )
 
-            collection_spent_on_markets = worksheet.cell(
-                ReportDataCells.collection_spent_on_markets[0],
-                ReportDataCells.collection_spent_on_markets[1],
-            ).value
+            collection_spent_on_markets = self._get_cell_value(
+                worksheet, ReportDataCells.collection_spent_on_markets
+            )
 
-            left_on_cold = worksheet.cell(
-                ReportDataCells.left_on_cold[0], ReportDataCells.left_on_cold[1]
-            ).value
+            left_on_cold = self._get_cell_value(
+                worksheet, ReportDataCells.left_on_cold
+            )
 
             # Convert string values to appropriate types
             def safe_float(value):
@@ -217,6 +238,7 @@ class SheetsClient:
                     logger.warning(
                         f"Skipped worksheet {worksheet.title} - missing or invalid data"
                     )
+                self._throttle_between_worksheets()
 
             return report_data
 
