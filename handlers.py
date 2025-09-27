@@ -607,7 +607,12 @@ class BotHandlers:
     async def update_floor_prices_internal(self) -> dict:
         """Internal method to update floor prices, returns result dict"""
         from modules.google_sheets.sheets_client import SheetsClient
-        from config import GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_PATH
+        from config import (
+            GOOGLE_SHEETS_KEY,
+            GOOGLE_CREDENTIALS_PATH,
+            GOOGLE_SHEETS_READ_DELAY,
+            GOOGLE_SHEETS_WORKSHEET_DELAY,
+        )
 
         # Validate prerequisites
         if not GOOGLE_SHEETS_KEY:
@@ -630,7 +635,11 @@ class BotHandlers:
 
         try:
             # Initialize sheets client
-            sheets_client = SheetsClient(GOOGLE_CREDENTIALS_PATH)
+            sheets_client = SheetsClient(
+                GOOGLE_CREDENTIALS_PATH,
+                read_delay=GOOGLE_SHEETS_READ_DELAY,
+                worksheet_delay=GOOGLE_SHEETS_WORKSHEET_DELAY,
+            )
             if not sheets_client.authenticate():
                 return {
                     "success": False,
@@ -754,7 +763,12 @@ class BotHandlers:
     async def cmd_report(self, message: types.Message):
         """Generate text report based on Google Sheets data"""
         from modules.google_sheets.sheets_client import SheetsClient
-        from config import GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_PATH
+        from config import (
+            GOOGLE_SHEETS_KEY,
+            GOOGLE_CREDENTIALS_PATH,
+            GOOGLE_SHEETS_READ_DELAY,
+            GOOGLE_SHEETS_WORKSHEET_DELAY,
+        )
 
         # Validate prerequisites
         if not GOOGLE_SHEETS_KEY:
@@ -776,7 +790,11 @@ class BotHandlers:
 
         try:
             # Initialize sheets client
-            sheets_client = SheetsClient(GOOGLE_CREDENTIALS_PATH)
+            sheets_client = SheetsClient(
+                GOOGLE_CREDENTIALS_PATH,
+                read_delay=GOOGLE_SHEETS_READ_DELAY,
+                worksheet_delay=GOOGLE_SHEETS_WORKSHEET_DELAY,
+            )
             if not sheets_client.authenticate():
                 await status_msg.edit_text(
                     "❌ Failed to authenticate with Google Sheets"
