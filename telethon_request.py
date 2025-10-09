@@ -6,6 +6,9 @@ import requests
 from telethon import TelegramClient, functions, types
 from config import TELEGRAM_API_ID, TELEGRAM_API_HASH
 
+# Legacy helper script for the deprecated stickerscan.online WebApp auth flow.
+# Kept for reference only – the production bot now uses public stickers.tools data.
+
 # ── CONFIG ────────────────────────────────────────────────────────────────
 # 1) Your user API credentials from https://my.telegram.org
 api_id   = TELEGRAM_API_ID
@@ -15,8 +18,7 @@ api_hash = TELEGRAM_API_HASH
 bot_username = '@sticker_scan_bot'
 peer         = '@sticker_scan_bot'
 
-# 3) The *original* WebApp URL that the bot registered
-#    (you don't need tgWebAppInitData here — Telethon will get it for you)
+# 3) The *original* WebApp URL that the bot registered (legacy endpoint)
 base_webapp = 'https://stickerscan.online/api/auth/telegram'
 # ── END CONFIG ────────────────────────────────────────────────────────────
 

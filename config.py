@@ -23,9 +23,8 @@ TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID", 0))
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
 
 # API configuration
-API_BASE_URL = "https://stickerscan.online/api"
-AUTH_ENDPOINT = f"{API_BASE_URL}/auth/telegram"
-PRICE_BUNDLES_ENDPOINT = f"{API_BASE_URL}/characters/min-price-bundles"
+API_BASE_URL = "https://stickers.tools/api"
+STICKER_STATS_ENDPOINT = f"{API_BASE_URL}/stats-new"
 
 # Whitelisted users
 WHITELISTED_USER_IDS = os.getenv("WHITELISTED_USER_IDS", "")

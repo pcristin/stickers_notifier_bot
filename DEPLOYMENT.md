@@ -339,8 +339,8 @@ make env-check
 # Test API connectivity
 curl -s "https://api.telegram.org/bot$BOT_TOKEN/getMe"
 
-# Test stickerscan.online
-curl -s "https://stickerscan.online/api/"
+# Test stickers.tools stats endpoint
+curl -s "https://stickers.tools/api/stats-new" | head
 ```
 
 #### High Memory Usage

@@ -1,18 +1,8 @@
-import time
 from typing import Dict, List, Optional, Any, TypedDict
-from urllib.parse import urlparse, parse_qsl, unquote_plus
 import aiohttp
 import logging
-from telethon import TelegramClient, functions, types
 
-from typing import Union
-
-from config import (
-    AUTH_ENDPOINT,
-    PRICE_BUNDLES_ENDPOINT,
-    TELEGRAM_API_ID,
-    TELEGRAM_API_HASH,
-)
+from config import STICKER_STATS_ENDPOINT
 
 logger = logging.getLogger(__name__)
 
@@ -20,174 +10,137 @@ logger = logging.getLogger(__name__)
 # MarketEntry is TypedDict class for annotation clarity
 class MarketEntry(TypedDict):
     price: float
-    url: str
+    url: Optional[str]
 
 
 class Scanner:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
-        self.access_token: Optional[str] = None
-        self.user_data: Optional[Dict] = None
-        self.token_expires_at: Optional[int] = None
-
-        # Telethon config
-        self.api_id = TELEGRAM_API_ID
-        self.api_hash = TELEGRAM_API_HASH
-        self.bot_username = "@sticker_scan_bot"
-        self.peer = "@sticker_scan_bot"
-        self.base_webapp = "https://stickerscan.online/api/auth/telegram"
-
-    async def _get_webapp_url(self) -> Union[str, None]:
-        """Get webapp URL using Telethon"""
-        async with TelegramClient("session", self.api_id, self.api_hash) as client:
-            try:
-                bot_entity = await client.get_entity(self.bot_username)
-                res = await client(
-                    functions.messages.RequestWebViewRequest(
-                        peer=bot_entity,
-                        bot=bot_entity,
-                        platform="web",
-                        from_bot_menu=True,
-                        url=self.base_webapp,
-                        theme_params=types.DataJSON(data="{}"),
-                    )
-                )
-                return res.url
-            except Exception as e:
-                logger.error(f"Something went wrong: {e}")
-                return None
-
-    def _fragment_to_initdata(self, frag: str) -> str:
-        """
-        Extract initData from URL fragment.
-        Given the URL-fragment after the '#', extract exactly
-        the 'tgWebAppData=...' payload and turn it into the
-        string the WebApp POST uses.
-        """
-        pairs = dict(parse_qsl(frag, keep_blank_values=True))
-        raw = pairs.get("tgWebAppData")
-        if not raw:
-            raise ValueError("No tgWebAppData in fragment")
-        # raw is URL-encoded again, so decode it once
-        return unquote_plus(raw)
-
-    async def _get_telethon_initdata(self) -> str:
-        """Get initData using Telethon authentication"""
-        # 1) get the MTProto‑generated WebView URL
-        webview_url = await self._get_webapp_url()
-        logger.info(f"WebView URL obtained: {webview_url}")
-
-        # 2) pull off the "#..." fragment
-        frag = str(urlparse(webview_url).fragment)
-        init_data = self._fragment_to_initdata(frag)
-        logger.info("initData extracted from WebView URL")
-
-        return init_data
-
-    async def authenticate(self) -> bool:
-        """Authenticate with stickerscan.online API using Telethon"""
-        try:
-            
-            logger.info("Getting initData via Telethon...")
-            init_data = await self._get_telethon_initdata()
-
-            payload = {"initData": init_data}
-
-            headers = {"Content-Type": "application/json", "Accept": "application/json"}
-
-            logger.info("Attempting authentication with stickerscan.online...")
-
-            async with self.session.post(
-                AUTH_ENDPOINT, json=payload, headers=headers
-            ) as response:
-
-                if response.status == 201:
-                    data = await response.json()
-                    self.access_token = data.get("access_token")
-                    self.user_data = data.get("user")
-
-                    # Extract token expiration time (assuming JWT token)
-                    if self.access_token:
-                        # For JWT tokens, expiration is typically 1 hour
-                        self.token_expires_at = int(time.time()) + 3600
-                    if self.user_data == None:
-                        logger.error("For some reasons user_data is empty")
-                        return False
-                    logger.info(
-                        f"Authentication successful. User: {self.user_data.get('firstName', 'Unknown')}"
-                    )
-                    return True
-                else:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Authentication failed. Status: {response.status}, Response: {error_text}"
-                    )
-                    return False
-
-        except Exception as e:
-            logger.error(f"Authentication error: {e}")
-            return False
-
-    async def is_token_valid(self) -> bool:
-        """Check if current token is still valid"""
-        if not self.access_token:
-            return False
-
-        if (
-            self.token_expires_at and int(time.time()) >= self.token_expires_at - 300
-        ):  # 5 minutes buffer
-            return False
-
-        return True
-
-    async def ensure_authenticated(self) -> bool:
-        """Ensure we have a valid authentication token"""
-        if await self.is_token_valid():
-            return True
-
-        return await self.authenticate()
+        self.stats_endpoint = STICKER_STATS_ENDPOINT
 
     async def fetch_price_bundles(self) -> Optional[List[Dict[str, Any]]]:
-        """Fetch minimum price bundles from API"""
+        """Fetch sticker statistics from stickers.tools and normalize output."""
         try:
-            if not await self.ensure_authenticated():
-                logger.error("Failed to authenticate before fetching price bundles")
-                return None
-
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            }
-
-            logger.info("Fetching price bundles...")
-
+            logger.info("Fetching sticker statistics from stickers.tools...")
             async with self.session.get(
-                PRICE_BUNDLES_ENDPOINT, headers=headers
+                self.stats_endpoint,
+                headers={"Accept": "application/json"},
             ) as response:
-
-                if response.status == 200:
-                    data = await response.json()
-                    logger.info(f"Successfully fetched {len(data)} price bundles")
-                    return data
-                else:
+                if response.status != 200:
                     error_text = await response.text()
                     logger.error(
-                        f"Failed to fetch price bundles. Status: {response.status}, Response: {error_text}"
+                        "Failed to fetch sticker statistics. Status: %s, Response: %s",
+                        response.status,
+                        error_text,
                     )
-
-                    # If unauthorized, try to re-authenticate
-                    if response.status == 401:
-                        logger.info("Token expired, attempting re-authentication...")
-                        self.access_token = None
-                        if await self.authenticate():
-                            return await self.fetch_price_bundles()
-
                     return None
 
+                payload = await response.json()
+                bundles = self._transform_stats_payload(payload)
+                logger.info("Successfully fetched %s sticker entries", len(bundles))
+                return bundles
         except Exception as e:
-            logger.error(f"Error fetching price bundles: {e}")
+            logger.error(f"Error fetching sticker statistics: {e}")
             return None
+
+    def _transform_stats_payload(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Convert stickers.tools stats payload into legacy bundle structure."""
+        collections = data.get("collections")
+        if not isinstance(collections, dict):
+            logger.error("stats-new payload missing collections dictionary")
+            return []
+
+        bundles: List[Dict[str, Any]] = []
+        for collection_id, collection_data in collections.items():
+            if not isinstance(collection_data, dict):
+                continue
+
+            collection_name = collection_data.get("name", "")
+            stickers = collection_data.get("stickers")
+            if isinstance(stickers, dict):
+                sticker_iterable = stickers.values()
+            elif isinstance(stickers, list):
+                sticker_iterable = stickers
+            else:
+                sticker_iterable = []
+
+            for sticker_data in sticker_iterable:
+                if not isinstance(sticker_data, dict):
+                    continue
+
+                bundle = self._build_bundle(collection_id, collection_name, sticker_data)
+                if bundle:
+                    bundles.append(bundle)
+
+        return bundles
+
+    def _build_bundle(
+        self, collection_id: Any, collection_name: str, sticker_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        sticker_name = sticker_data.get("name")
+        if not sticker_name:
+            return None
+
+        floor_price = self._extract_nested_float(
+            sticker_data, ["current", "price", "floor", "ton"]
+        )
+        image_url = sticker_data.get("preview_url")
+        sticker_id = sticker_data.get("id")
+
+        market_entry: List[Dict[str, Any]] = []
+        if floor_price is not None:
+            market_info = {
+                "marketplace": "STICKERS_TOOLS",
+                "price": floor_price,
+                "currency": "TON",
+                "prices": [],
+                "url": self._build_sticker_url(collection_id, sticker_id),
+            }
+            market_entry.append(market_info)
+
+        bundle = {
+            "collectionId": str(collection_id),
+            "collectionName": collection_name,
+            "characterId": str(sticker_id),
+            "characterName": sticker_name,
+            "imageUrl": image_url,
+            "marketplaces": market_entry,
+            "stats": self._extract_stats_snapshot(sticker_data),
+        }
+
+        return bundle
+
+    def _extract_stats_snapshot(self, sticker_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract a compact stats snapshot for downstream features."""
+        current = sticker_data.get("current") if isinstance(sticker_data.get("current"), dict) else {}
+        price_block = current.get("price") if isinstance(current.get("price"), dict) else {}
+        volume_block = current.get("volume") if isinstance(current.get("volume"), dict) else {}
+
+        return {
+            "floor_price_ton": self._extract_nested_float(price_block, ["floor", "ton"]),
+            "median_price_ton": self._extract_nested_float(price_block, ["median", "ton"]),
+            "24h_volume_ton": self._extract_nested_float(sticker_data, ["24h", "volume", "ton"]),
+            "7d_volume_ton": self._extract_nested_float(sticker_data, ["7d", "volume", "ton"]),
+            "current_volume_ton": self._extract_nested_float(volume_block, ["ton"]),
+        }
+
+    def _extract_nested_float(self, data: Dict[str, Any], path: List[str]) -> Optional[float]:
+        node: Any = data
+        for key in path:
+            if not isinstance(node, dict):
+                return None
+            node = node.get(key)
+        try:
+            if node is None:
+                return None
+            return float(node)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_sticker_url(self, collection_id: Any, sticker_id: Any) -> Optional[str]:
+        if collection_id is None or sticker_id is None:
+            return None
+        return f"https://stickers.tools/collection/{collection_id}?sticker={sticker_id}"
 
     def find_collection_by_names(
         self, bundles: List[Dict], collection_name: str, stickerpack_name: str

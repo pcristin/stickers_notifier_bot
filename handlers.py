@@ -2462,10 +2462,24 @@ class BotHandlers:
                 )
                 return
 
-            # Calculate wall for each marketplace
+            # Calculate wall for each marketplace, abort if detailed listings are unavailable
+            marketplace_entries = target_collection.get("marketplaces", [])
+            has_wall_data = any(
+                isinstance(marketplace_info, dict)
+                and isinstance(marketplace_info.get("prices"), list)
+                and marketplace_info.get("prices")
+                for marketplace_info in marketplace_entries
+            )
+
+            if not has_wall_data:
+                await message.answer(
+                    "❌ Detailed wall data is not available from the new data source."
+                )
+                return
+
             marketplace_walls = {}
 
-            for marketplace_info in target_collection.get("marketplaces", []):
+            for marketplace_info in marketplace_entries:
                 marketplace = marketplace_info.get("marketplace", "Unknown")
                 prices = marketplace_info.get("prices", [])
 

@@ -60,30 +60,9 @@ A Telegram bot that monitors sticker pack prices on multiple marketplaces and se
    # Telegram Bot Configuration
    BOT_TOKEN=your_telegram_bot_token_here
 
-   # OPTION 1: Use captured initData (Recommended)
-   TELEGRAM_INIT_DATA=user=%7B%22id%22%3A...your_captured_initdata_here
-   ```
-   
-   **How to capture initData (Recommended method):**
-   1. Open [stickerscan.online](https://stickerscan.online) in browser
-   2. Login through Telegram WebApp
-   3. Open Browser Dev Tools (F12) → Network tab
-   4. Look for the `/auth/telegram` POST request
-   5. Copy the `initData` value from the request payload
-   6. Add it to your `.env` file
-   
-   📋 **Need detailed instructions?** See [capture_initdata_guide.md](capture_initdata_guide.md) for step-by-step screenshots and troubleshooting.
-   
-   **Alternative - Manual account data (may not work without proper signatures):**
-   ```bash
-   # Manual Telegram Account Data
-   TELEGRAM_USER_ID=your_telegram_user_id
-   TELEGRAM_FIRST_NAME=your_first_name
-   TELEGRAM_LAST_NAME=your_last_name
-   TELEGRAM_USERNAME=your_username
-   TELEGRAM_LANGUAGE_CODE=en
-   TELEGRAM_IS_PREMIUM=false
-   TELEGRAM_PHOTO_URL=
+   # Stickers.Tools integration does not require Telegram WebApp auth tokens
+   # Additional environment variables are optional.
+
    ```
 
 3. **Test authentication (optional but recommended):**
@@ -109,12 +88,10 @@ A Telegram bot that monitors sticker pack prices on multiple marketplaces and se
 ```
 stickers_notifier_bot/
 ├── main.py                  # Main bot logic with aiogram
-├── api_client.py            # API client for stickerscan.online
+├── api_client.py            # API client for stickers.tools stats endpoint
 ├── user_states.py           # User state management system
 ├── config.py                # Configuration settings
-├── test_auth.py             # Authentication test script
 ├── requirements.txt         # Python dependencies
-├── capture_initdata_guide.md # Detailed guide for capturing initData
 ├── DEPLOYMENT.md            # Complete deployment guide
 ├── Makefile                 # Comprehensive automation for all operations
 ├── Dockerfile               # Docker container definition
@@ -126,7 +103,7 @@ stickers_notifier_bot/
 │   └── notification_history.json
 ├── logs/                   # Application logs (auto-created)
 │   └── bot.log
-└── bundle_price.json       # API response sample
+└── bundle_price.json       # Legacy stickerscan response sample
 ```
 
 ## Bot Commands
@@ -210,21 +187,18 @@ stickers_notifier_bot/
 
 ## API Integration
 
-The bot integrates with `https://stickerscan.online/api/` to:
-1. Authenticate with Telegram webapp data
-2. Fetch price bundles for all sticker collections
-3. Monitor price changes across marketplaces
+The bot now integrates with `https://stickers.tools/api/stats-new` to:
+1. Fetch floor prices and market statistics for all sticker collections
+2. Monitor price changes using public metrics (no webapp auth required)
+3. Keep image previews in sync with stickers.tools metadata
 
 ## API Client Features
 
 ✅ **Implemented:**
-- Telegram WebApp authentication with stickerscan.online
-- Automatic token refresh and session management
-- Price bundle fetching from API
+- Public stats retrieval from stickers.tools
+- Legacy bundle compatibility layer for existing bot features
 - Collection price comparison and threshold checking
 - Formatted notification system
-
-⚠️ **Note:** The current implementation uses placeholder values for signature and hash generation. For production use, you'll need to implement proper HMAC-SHA256 signature generation using your bot's secret key.
 
 ## User Experience
 
@@ -254,7 +228,6 @@ The bot integrates with `https://stickerscan.online/api/` to:
 
 ## TODO
 
-- [ ] Add proper signature/hash generation for production auth
 - [ ] Add price history tracking and trends
 - [ ] Implement rate limiting and API error handling
 - [ ] Add collection search/browse functionality
