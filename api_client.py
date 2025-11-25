@@ -140,7 +140,7 @@ class Scanner:
     def _build_sticker_url(self, collection_id: Any, sticker_id: Any) -> Optional[str]:
         if collection_id is None or sticker_id is None:
             return None
-        return f"https://stickers.tools/collection/{collection_id}?sticker={sticker_id}"
+        return f"https://assets.tools/collection/{collection_id}?sticker={sticker_id}"
 
     def find_collection_by_names(
         self, bundles: List[Dict], collection_name: str, stickerpack_name: str
