@@ -11,7 +11,7 @@ class StickerToolsClient:
     def __init__(self, session: aiohttp.ClientSession) -> None:
         self.session = session
         self.headers = {"Accept": "*/*"}
-        self.stats_base_url = "https://stickers.tools/api/stats-new"
+        self.stats_base_url = "https://assets.tools/api/stats-new"
 
     def _normalize_sticker_payload(self, raw: dict) -> dict:
         """Normalize sticker fields from stats-new to legacy keys expected by models.
